@@ -1,0 +1,67 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.19",
+    "version": "1.0.7",
+    "id": "${{TEAMS_APP_ID}}",
+    "developer": {
+        "name": "Trenquil",
+        "websiteUrl": "https://www.example.com/coffee-shop-order",
+        "privacyUrl": "https://www.example.com/coffee-shop-order/privacy",
+        "termsOfUseUrl": "https://www.example.com/coffee-shop-order/terms"
+    },
+    "icons": {
+        "color": "color.png",
+        "outline": "outline.png"
+    },
+    "name": {
+        "short": "Coffee Shop${{APP_NAME_SUFFIX}}",
+        "full": "Coffee Shop Ordering"
+    },
+    "description": {
+        "short": "Pre-order drinks and snacks from the school coffee shop.",
+        "full": "Skip the queue — browse the menu, place your order, and pick up from the collection grid. Staff can manage the order queue, inventory, and pickup windows."
+    },
+    "accentColor": "#6B3A2A",
+    "bots": [],
+    "composeExtensions": [],
+    "staticTabs": [
+        {
+            "entityId": "index0",
+            "name": "Order",
+            "contentUrl": "${{TAB_ENDPOINT}}/app",
+            "websiteUrl": "${{TAB_ENDPOINT}}/app",
+            "scopes": [
+                "personal"
+            ]
+        }
+    ],
+    "permissions": [
+        "identity"
+    ],
+    "validDomains": [
+        "${{TAB_DOMAIN}}"
+    ],
+    "activities": {
+        "activityTypes": [
+            {
+                "type": "taskCreated",
+                "description": "Coffee Shop notification",
+                "templateText": "{title}"
+            }
+        ]
+    },
+    "webApplicationInfo": {
+        "id": "${{AAD_APP_CLIENT_ID}}",
+        "resource": "api://${{TAB_DOMAIN}}/${{AAD_APP_CLIENT_ID}}"
+    },
+    "authorization": {
+        "permissions": {
+            "resourceSpecific": [
+                {
+                    "name": "TeamsActivity.Send.User",
+                    "type": "Application"
+                }
+            ]
+        }
+    }
+}

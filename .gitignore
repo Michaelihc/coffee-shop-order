@@ -1,0 +1,40 @@
+# TeamsFx files
+env/.env.*.user
+env/.env.local
+.localConfigs
+build
+appPackage/build
+.vscode/.profiles/
+
+# dependencies
+node_modules/
+
+# misc
+.env
+.deployment
+.DS_Store
+.claude/
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+
+# build
+lib/
+dist/
+*.tsbuildinfo
+
+# database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# logs and local runtime artifacts
+LogFiles/
+azure-logs/
+deployments/
+*.log
+logs.zip
+azure-logs.zip
+
+# packaged deployment artifacts
+*.zip

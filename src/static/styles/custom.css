@@ -1,0 +1,122 @@
+:root {
+  --coffee-950: #2f1b12;
+  --coffee-800: #5a3420;
+  --coffee-700: #7b4b2a;
+  --cream: #fff9f3;
+  --ink: #22150f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(circle at top left, rgba(240, 223, 207, 0.9), transparent 28%),
+    linear-gradient(135deg, #f9efe4 0%, #f4e2cf 45%, #ead2bd 100%);
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+.shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.hero {
+  padding: 32px;
+  border-radius: 24px;
+  background: rgba(255, 249, 243, 0.84);
+  border: 1px solid rgba(123, 75, 42, 0.16);
+  box-shadow: 0 20px 50px rgba(67, 37, 21, 0.12);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--coffee-700);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  line-height: 0.95;
+}
+
+.lede {
+  max-width: 640px;
+  margin: 20px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--coffee-950);
+  color: var(--cream);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #74d17f;
+  box-shadow: 0 0 0 5px rgba(116, 209, 127, 0.18);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.card {
+  padding: 24px;
+  border-radius: 20px;
+  background: rgba(255, 249, 243, 0.78);
+  border: 1px solid rgba(123, 75, 42, 0.12);
+  box-shadow: 0 12px 28px rgba(67, 37, 21, 0.08);
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+}
+
+.card p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+#hubState {
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 24px 16px 40px;
+  }
+
+  .hero,
+  .card {
+    padding: 20px;
+  }
+}
