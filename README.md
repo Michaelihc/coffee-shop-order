@@ -32,7 +32,7 @@ This repo now contains a working Microsoft Teams tab app scaffold generated with
 
 This repo now includes a dedicated live-test environment at `env/.env.trenquil`.
 
-1. Sign out of the current WCC Microsoft 365 session in Teams Toolkit CLI:
+1. Sign out of the current Microsoft 365 session in Teams Toolkit CLI:
    `teamsapp auth logout m365`
 2. Sign in with your Trenquil Microsoft 365 account:
    `teamsapp auth login m365`
