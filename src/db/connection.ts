@@ -8,22 +8,31 @@ import path from "path";
  * SQLite implementation (no native bindings → works on Azure F1 32-bit).
  */
 
+type StatementParams = readonly unknown[] | Record<string, unknown>;
+interface RawStatement {
+  bind(values: StatementParams): void;
+  free(): void;
+  get(): unknown[];
+  getColumnNames(): string[];
+  step(): boolean;
+}
+
 interface RunResult {
   changes: number;
   lastInsertRowid: number;
 }
 
-interface Statement<T = any> {
-  get(...params: any[]): T | undefined;
-  all(...params: any[]): T[];
-  run(...params: any[]): RunResult;
+interface Statement<T = unknown> {
+  get(...params: unknown[]): T | undefined;
+  all(...params: unknown[]): T[];
+  run(...params: unknown[]): RunResult;
 }
 
 export interface CompatDatabase {
-  prepare<T = any>(sql: string): Statement<T>;
+  prepare<T = unknown>(sql: string): Statement<T>;
   exec(sql: string): void;
-  pragma(pragma: string): any;
-  transaction<T extends (...args: any[]) => any>(fn: T): T;
+  pragma(pragma: string): unknown;
+  transaction<T>(fn: () => T): () => T;
   close(): void;
 }
 
@@ -31,6 +40,17 @@ let db: CompatDatabase | null = null;
 let sqlDb: SqlJsDatabase | null = null;
 let dbPath: string = "";
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearDbState() {
+  db = null;
+  sqlDb = null;
+  dbPath = "";
+  initPromise = null;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+}
 
 function debouncedSave() {
   if (saveTimer) clearTimeout(saveTimer);
@@ -54,12 +74,34 @@ function forceSave() {
   }
 }
 
-function rowsToObjects(stmt: any): any[] {
+function bindStatement(stmt: RawStatement, params: unknown[]): void {
+  const candidate = params.length === 1 ? params[0] : params;
+  const boundValue: StatementParams = (
+    candidate !== null &&
+    typeof candidate === "object" &&
+    !Array.isArray(candidate)
+  )
+    ? (candidate as Record<string, unknown>)
+    : params;
+
+  stmt.bind(boundValue);
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "then" in value &&
+    typeof (value as Promise<T>).then === "function"
+  );
+}
+
+function rowsToObjects(stmt: RawStatement): Record<string, unknown>[] {
   const cols: string[] = stmt.getColumnNames();
-  const results: any[] = [];
+  const results: Record<string, unknown>[] = [];
   while (stmt.step()) {
     const vals = stmt.get();
-    const obj: any = {};
+    const obj: Record<string, unknown> = {};
     for (let i = 0; i < cols.length; i++) {
       obj[cols[i]] = vals[i];
     }
@@ -71,15 +113,15 @@ function rowsToObjects(stmt: any): any[] {
 
 function createWrapper(raw: SqlJsDatabase): CompatDatabase {
   const wrapper: CompatDatabase = {
-    prepare<T = any>(sql: string): Statement<T> {
+    prepare<T = unknown>(sql: string): Statement<T> {
       return {
-        get(...params: any[]): T | undefined {
-          const stmt = raw.prepare(sql);
-          stmt.bind(params.length === 1 && typeof params[0] === "object" && !Array.isArray(params[0]) ? params[0] : params);
+        get(...params: unknown[]): T | undefined {
+          const stmt = raw.prepare(sql) as unknown as RawStatement;
+          bindStatement(stmt, params);
           if (stmt.step()) {
             const cols = stmt.getColumnNames();
             const vals = stmt.get();
-            const obj: any = {};
+            const obj: Record<string, unknown> = {};
             for (let i = 0; i < cols.length; i++) {
               obj[cols[i]] = vals[i];
             }
@@ -89,14 +131,22 @@ function createWrapper(raw: SqlJsDatabase): CompatDatabase {
           stmt.free();
           return undefined;
         },
-        all(...params: any[]): T[] {
-          const stmt = raw.prepare(sql);
-          stmt.bind(params.length === 1 && typeof params[0] === "object" && !Array.isArray(params[0]) ? params[0] : params);
+        all(...params: unknown[]): T[] {
+          const stmt = raw.prepare(sql) as unknown as RawStatement;
+          bindStatement(stmt, params);
           const results = rowsToObjects(stmt);
           return results as T[];
         },
-        run(...params: any[]): RunResult {
-          raw.run(sql, params.length === 1 && typeof params[0] === "object" && !Array.isArray(params[0]) ? params[0] : params);
+        run(...params: unknown[]): RunResult {
+          const candidate = params.length === 1 ? params[0] : params;
+          const boundValue: StatementParams = (
+            candidate !== null &&
+            typeof candidate === "object" &&
+            !Array.isArray(candidate)
+          )
+            ? (candidate as Record<string, unknown>)
+            : params;
+          raw.run(sql, boundValue);
           const changes = raw.getRowsModified();
           // sql.js doesn't expose last_insert_rowid directly through run,
           // so we query it separately
@@ -115,7 +165,7 @@ function createWrapper(raw: SqlJsDatabase): CompatDatabase {
       debouncedSave();
     },
 
-    pragma(pragma: string): any {
+    pragma(pragma: string): unknown {
       try {
         const results = raw.exec(`PRAGMA ${pragma}`);
         if (results.length > 0 && results[0].values.length > 0) {
@@ -127,19 +177,27 @@ function createWrapper(raw: SqlJsDatabase): CompatDatabase {
       return undefined;
     },
 
-    transaction<T extends (...args: any[]) => any>(fn: T): T {
-      const wrapped = ((...args: any[]) => {
+    transaction<T>(fn: () => T): () => T {
+      const wrapped = () => {
         raw.run("BEGIN TRANSACTION");
         try {
-          const result = fn(...args);
+          const result = fn();
+          if (isPromiseLike(result)) {
+            raw.run("ROLLBACK");
+            throw new Error("Async callbacks are not supported in database transactions");
+          }
           raw.run("COMMIT");
           forceSave();
           return result;
         } catch (e) {
-          raw.run("ROLLBACK");
+          try {
+            raw.run("ROLLBACK");
+          } catch {
+            // Ignore rollback errors if the transaction was already closed.
+          }
           throw e;
         }
-      }) as unknown as T;
+      };
       return wrapped;
     },
 
@@ -193,4 +251,11 @@ export function getDb(): CompatDatabase {
     );
   }
   return db;
+}
+
+export function resetDbForTests(): void {
+  if (db) {
+    db.close();
+  }
+  clearDbState();
 }

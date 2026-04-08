@@ -2,7 +2,7 @@
   "watch": ["src"],
   "ignore": ["src/client/**"],
   "ext": "*",
-  "exec": "node --inspect=9239 -r ts-node/register src/app.ts",
+  "exec": "node --inspect=9239 -r ts-node/register src/server.ts",
   "signal": "SIGINT",
   "events": {
     "restart": "npm run build:frontend"

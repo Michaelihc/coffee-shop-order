@@ -1,28 +1,18 @@
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { getDb } from "../../db/connection";
+import { requireStaff } from "../../middleware/authorization";
 import { rowToMenuItem } from "../../services/inventory-service";
+import {
+  validateInventoryCreatePayload,
+  validateInventoryPatchPayload,
+  validateInventoryUpdatePayload,
+} from "../../validation/admin";
 
 const router = Router();
-
-function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const db = getDb();
-  const staff = db
-    .prepare("SELECT * FROM staff WHERE aad_id = ?")
-    .get(req.user.userId);
-  if (!staff) {
-    res.status(403).json({ error: "Staff access required" });
-    return;
-  }
-  next();
-}
 
 router.use(requireStaff);
 
@@ -54,20 +44,12 @@ router.get("/", (_req: Request, res: Response) => {
 // POST /api/admin/inventory — create new menu item
 router.post("/", (req: Request, res: Response) => {
   const db = getDb();
-  const { id, categoryId, name, description, priceCents, itemClass, stockCount } = req.body as {
-    id: string;
-    categoryId: string;
-    name: string;
-    description?: string;
-    priceCents: number;
-    itemClass: string;
-    stockCount?: number;
-  };
-
-  if (!id || !categoryId || !name || priceCents == null || !itemClass) {
-    res.status(400).json({ error: "Missing required fields" });
+  const validation = validateInventoryCreatePayload(req.body);
+  if (validation.ok === false) {
+    res.status(400).json({ error: validation.error });
     return;
   }
+  const { id, categoryId, name, description, priceCents, itemClass, stockCount } = validation.value;
 
   const existing = db.prepare("SELECT id FROM menu_items WHERE id = ?").get(id);
   if (existing) {
@@ -99,15 +81,12 @@ router.put("/:id", (req: Request, res: Response) => {
     return;
   }
 
-  const { categoryId, name, description, priceCents, itemClass, stockCount, sortOrder } = req.body as {
-    categoryId?: string;
-    name?: string;
-    description?: string;
-    priceCents?: number;
-    itemClass?: string;
-    stockCount?: number;
-    sortOrder?: number;
-  };
+  const validation = validateInventoryUpdatePayload(req.body);
+  if (validation.ok === false) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+  const { categoryId, name, description, priceCents, itemClass, stockCount, sortOrder } = validation.value;
 
   db.prepare(
     `UPDATE menu_items SET
@@ -153,10 +132,12 @@ router.delete("/:id", (req: Request, res: Response) => {
 // PATCH /api/admin/inventory/:id
 router.patch("/:id", (req: Request, res: Response) => {
   const db = getDb();
-  const { stockCount, isAvailable } = req.body as {
-    stockCount?: number;
-    isAvailable?: boolean;
-  };
+  const validation = validateInventoryPatchPayload(req.body);
+  if (validation.ok === false) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+  const { stockCount, isAvailable } = validation.value;
 
   const item = db
     .prepare("SELECT * FROM menu_items WHERE id = ?")
@@ -217,10 +198,19 @@ const upload = multer({
 
 // POST /api/admin/inventory/:id/image — upload image
 router.post("/:id/image", (req: Request, res: Response) => {
+  const db = getDb();
+  const itemId = req.params.id as string;
+  const existingItem = db
+    .prepare("SELECT * FROM menu_items WHERE id = ?")
+    .get(itemId) as ItemRow | undefined;
+  if (!existingItem) {
+    res.status(404).json({ error: "Item not found" });
+    return;
+  }
+
   upload.single("image")(req, res, (err: unknown) => {
     if (err) {
       const msg = err instanceof Error ? err.message : "Upload error";
-      console.error("[image-upload] multer error:", msg);
       if (err instanceof multer.MulterError) {
         if (err.code === "LIMIT_FILE_SIZE") {
           res.status(413).json({ error: "File too large (max 2MB)" });
@@ -234,39 +224,38 @@ router.post("/:id/image", (req: Request, res: Response) => {
     }
 
     try {
-      const db = getDb();
-      const itemId = req.params.id as string;
-      console.log("[image-upload] item=%s, file=%s, dest=%s", itemId, req.file?.originalname, uploadsDir);
-
-      const item = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(itemId) as ItemRow | undefined;
-      if (!item) {
-        console.warn("[image-upload] item not found:", itemId);
-        res.status(404).json({ error: "Item not found" });
-        return;
-      }
-
       if (!req.file) {
-        console.warn("[image-upload] no file in request");
         res.status(400).json({ error: "No image file provided" });
         return;
       }
 
       // Delete old image if exists
-      if (item.image_url) {
-        const oldPath = path.join(uploadsDir, path.basename(item.image_url));
+      if (existingItem.image_url) {
+        const oldPath = path.join(uploadsDir, path.basename(existingItem.image_url));
         if (fs.existsSync(oldPath)) {
           fs.unlinkSync(oldPath);
-          console.log("[image-upload] deleted old image:", oldPath);
         }
       }
 
+      const previousImagePath = existingItem.image_url
+        ? path.join(uploadsDir, path.basename(existingItem.image_url))
+        : null;
       const imageUrl = `/uploads/${req.file.filename}`;
       db.prepare("UPDATE menu_items SET image_url = ? WHERE id = ?").run(imageUrl, itemId);
-      console.log("[image-upload] saved:", imageUrl);
+
+      if (previousImagePath && fs.existsSync(previousImagePath)) {
+        fs.unlinkSync(previousImagePath);
+      }
 
       const updated = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(itemId) as ItemRow;
       res.json({ item: rowToMenuItem(updated) });
     } catch (e: unknown) {
+      if (req.file) {
+        const uploadedPath = path.join(uploadsDir, req.file.filename);
+        if (fs.existsSync(uploadedPath)) {
+          fs.unlinkSync(uploadedPath);
+        }
+      }
       const msg = e instanceof Error ? e.message : "Internal error";
       console.error("[image-upload] handler error:", msg, e);
       res.status(500).json({ error: msg });

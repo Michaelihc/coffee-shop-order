@@ -7,10 +7,12 @@ import {
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
 import { usePoller } from "../../hooks/usePoller";
-import { api } from "../../api-client";
+import {
+  downloadAuthenticatedFile,
+  fetchBalanceReport,
+  fetchSpendingReport,
+} from "../../admin-api";
 import type {
-  BalanceReportResponse,
-  SpendingReportResponse,
   StudentBalanceReportRow,
   StudentSpendingReportRow,
 } from "../../../types/api";
@@ -115,8 +117,8 @@ export function ReportsPage() {
 
   const fetchData = useCallback(() => {
     Promise.all([
-      api.get<BalanceReportResponse>("/api/admin/reports/balance"),
-      api.get<SpendingReportResponse>("/api/admin/reports/spending"),
+      fetchBalanceReport(),
+      fetchSpendingReport(),
     ])
       .then(([balanceData, spendingData]) => {
         setBalances(balanceData.balances);
@@ -130,12 +132,18 @@ export function ReportsPage() {
 
   usePoller(fetchData, 30000);
 
-  function handleExportCsv() {
-    window.open("/api/admin/reports/balance/csv", "_blank");
+  async function handleExportCsv() {
+    await downloadAuthenticatedFile(
+      "/api/admin/reports/balance/csv",
+      "student-balances.csv"
+    );
   }
 
-  function handleExportSpendingCsv() {
-    window.open("/api/admin/reports/spending/csv", "_blank");
+  async function handleExportSpendingCsv() {
+    await downloadAuthenticatedFile(
+      "/api/admin/reports/spending/csv",
+      "student-spending.csv"
+    );
   }
 
   if (loading) return <Spinner label={t("reports.loading")} />;

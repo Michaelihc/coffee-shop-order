@@ -1,6 +1,7 @@
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response } from "express";
 import { getDb } from "../../db/connection";
+import { requireStaff } from "../../middleware/authorization";
 import {
   getGridSlots,
   clearGridSlot,
@@ -8,22 +9,6 @@ import {
 import { updateOrderStatus } from "../../services/order-service";
 
 const router = Router();
-
-function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const db = getDb();
-  const staff = db
-    .prepare("SELECT * FROM staff WHERE aad_id = ?")
-    .get(req.user.userId);
-  if (!staff) {
-    res.status(403).json({ error: "Staff access required" });
-    return;
-  }
-  next();
-}
 
 router.use(requireStaff);
 
@@ -63,7 +48,11 @@ router.patch("/:id", (req: Request, res: Response) => {
   }
 
   if (slot.currentOrderId) {
-    updateOrderStatus(slot.currentOrderId, "collected");
+    const result = updateOrderStatus(slot.currentOrderId, "collected");
+    if (result.ok === false) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
   } else {
     clearGridSlot(req.params.id as string);
   }

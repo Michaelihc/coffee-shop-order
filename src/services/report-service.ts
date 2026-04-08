@@ -1,4 +1,5 @@
 import { getDb } from "../db/connection";
+import { getCurrentBusinessDate } from "./business-time-service";
 
 export interface StudentBalance {
   studentAadId: string;
@@ -46,7 +47,7 @@ export function getStudentBalances(): StudentBalance[] {
   }));
 }
 
-export function getStudentSpending(date = new Date().toISOString().slice(0, 10)): StudentSpending[] {
+export function getStudentSpending(date = getCurrentBusinessDate()): StudentSpending[] {
   const db = getDb();
   const rows = db
     .prepare(
@@ -55,7 +56,7 @@ export function getStudentSpending(date = new Date().toISOString().slice(0, 10))
          MAX(student_name) as student_name,
          COUNT(*) as order_count,
          COALESCE(SUM(total_cents), 0) as total_spend_cents,
-         COALESCE(SUM(CASE WHEN date(created_at) = ? THEN total_cents ELSE 0 END), 0) as today_spend_cents
+         COALESCE(SUM(CASE WHEN business_date = ? THEN total_cents ELSE 0 END), 0) as today_spend_cents
        FROM orders
        WHERE status != 'cancelled'
        GROUP BY student_aad_id

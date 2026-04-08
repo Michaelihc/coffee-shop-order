@@ -1,4 +1,5 @@
 import type { CompatDatabase } from "./connection";
+import { DEFAULT_APP_SETTINGS } from "../config/app-settings";
 import { allowUnsafeHeaderAuth, isLocalDevMode } from "../config/runtime-mode";
 
 function parseAadIdList(value?: string): string[] {
@@ -84,10 +85,9 @@ export function seedIfEmpty(db: CompatDatabase): void {
     const insertSetting = db.prepare(
       "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)"
     );
-    insertSetting.run("max_items_per_order", "10");
-    insertSetting.run("max_order_total_cents", "25000");
-    insertSetting.run("daily_spend_limit_cents", "30000");
-    insertSetting.run("enforce_window_cap", "1");
+    for (const [key, value] of Object.entries(DEFAULT_APP_SETTINGS)) {
+      insertSetting.run(key, value);
+    }
   });
 
   tx();

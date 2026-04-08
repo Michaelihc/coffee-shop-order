@@ -13,6 +13,7 @@ export type PaymentResult =
   | { ok: false; reason: string };
 
 export interface PaymentProvider {
+  readonly mode?: "stub" | "live";
   charge(params: ChargeParams): Promise<PaymentResult>;
   refund(transactionRef: string, amountCents: number): Promise<PaymentResult>;
 }

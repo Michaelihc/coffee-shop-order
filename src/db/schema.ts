@@ -1,4 +1,50 @@
 import type { CompatDatabase } from "./connection";
+import { DEFAULT_APP_SETTINGS } from "../config/app-settings";
+import { getBusinessDateForStoredTimestamp } from "../services/business-time-service";
+import { parseOrderSequenceForBusinessDate } from "../services/order-id-service";
+
+function backfillOrderSequences(db: CompatDatabase): void {
+  const orders = db
+    .prepare<{ id: string; business_date: string | null }>(
+      "SELECT id, business_date FROM orders WHERE business_date IS NOT NULL AND TRIM(business_date) != ''"
+    )
+    .all();
+
+  const nextSequenceByDate = new Map<string, number>();
+  for (const order of orders) {
+    if (!order.business_date) {
+      continue;
+    }
+
+    const sequence = parseOrderSequenceForBusinessDate(order.id, order.business_date);
+    if (!sequence) {
+      continue;
+    }
+
+    const nextSequence = sequence + 1;
+    const current = nextSequenceByDate.get(order.business_date) ?? 1;
+    if (nextSequence > current) {
+      nextSequenceByDate.set(order.business_date, nextSequence);
+    }
+  }
+
+  const upsert = db.prepare(
+    `INSERT INTO order_sequences (business_date, next_sequence)
+     VALUES (?, ?)
+     ON CONFLICT(business_date) DO UPDATE SET next_sequence =
+       CASE
+         WHEN excluded.next_sequence > order_sequences.next_sequence THEN excluded.next_sequence
+         ELSE order_sequences.next_sequence
+       END`
+  );
+
+  const tx = db.transaction(() => {
+    for (const [businessDate, nextSequence] of nextSequenceByDate.entries()) {
+      upsert.run(businessDate, nextSequence);
+    }
+  });
+  tx();
+}
 
 export function migrateDatabase(db: CompatDatabase): void {
   db.exec(`
@@ -47,6 +93,7 @@ export function migrateDatabase(db: CompatDatabase): void {
       payment_settled_at TEXT,
       cancel_reason     TEXT,
       cancel_note       TEXT,
+      business_date     TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
       ready_at          TEXT,
@@ -83,6 +130,22 @@ export function migrateDatabase(db: CompatDatabase): void {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS order_sequences (
+      business_date  TEXT PRIMARY KEY,
+      next_sequence  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_reconciliation_incidents (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id         TEXT,
+      transaction_ref  TEXT NOT NULL,
+      amount_cents     INTEGER NOT NULL,
+      incident_type    TEXT NOT NULL,
+      details          TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at      TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_orders_student ON orders(student_aad_id);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
     CREATE INDEX IF NOT EXISTS idx_orders_window ON orders(pickup_window_id);
@@ -105,6 +168,11 @@ export function migrateDatabase(db: CompatDatabase): void {
   if (!orderColumnNames.has("cancel_note")) {
     db.exec("ALTER TABLE orders ADD COLUMN cancel_note TEXT");
   }
+  if (!orderColumnNames.has("business_date")) {
+    db.exec("ALTER TABLE orders ADD COLUMN business_date TEXT");
+  }
+
+  db.exec("CREATE INDEX IF NOT EXISTS idx_orders_business_date ON orders(business_date)");
 
   db.exec(`
     UPDATE orders
@@ -118,8 +186,36 @@ export function migrateDatabase(db: CompatDatabase): void {
     WHERE payment_method = 'pay-at-collect'
   `);
 
-  db.exec(`
-    INSERT OR IGNORE INTO settings (key, value)
-    VALUES ('daily_spend_limit_cents', '30000')
-  `);
+  const insertDefaultSetting = db.prepare(
+    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)"
+  );
+  const seedDefaultSettings = db.transaction(() => {
+    for (const [key, value] of Object.entries(DEFAULT_APP_SETTINGS)) {
+      insertDefaultSetting.run(key, value);
+    }
+  });
+  seedDefaultSettings();
+
+  const ordersMissingBusinessDate = db
+    .prepare<{ id: string; created_at: string }>(
+      "SELECT id, created_at FROM orders WHERE business_date IS NULL OR TRIM(business_date) = ''"
+    )
+    .all();
+
+  if (ordersMissingBusinessDate.length > 0) {
+    const updateBusinessDate = db.prepare(
+      "UPDATE orders SET business_date = ? WHERE id = ?"
+    );
+    const tx = db.transaction(() => {
+      for (const order of ordersMissingBusinessDate) {
+        updateBusinessDate.run(
+          getBusinessDateForStoredTimestamp(order.created_at),
+          order.id
+        );
+      }
+    });
+    tx();
+  }
+
+  backfillOrderSequences(db);
 }

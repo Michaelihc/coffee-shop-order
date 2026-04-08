@@ -13,3 +13,7 @@ export function getPaymentProvider(): PaymentProvider {
   }
   return provider;
 }
+
+export function setPaymentProvider(nextProvider: PaymentProvider | null): void {
+  provider = nextProvider;
+}

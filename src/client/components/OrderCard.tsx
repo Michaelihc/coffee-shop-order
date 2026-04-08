@@ -45,15 +45,19 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase100,
     fontWeight: tokens.fontWeightSemibold,
     backgroundColor: tokens.colorNeutralBackground3,
-    color: tokens.colorNeutralForeground3,
+    color: tokens.colorNeutralForeground2,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
   },
   activeStep: {
     backgroundColor: tokens.colorBrandBackground,
     color: tokens.colorNeutralForegroundOnBrand,
+    borderColor: tokens.colorBrandBackground,
+    boxShadow: tokens.shadow2,
   },
   completedStep: {
-    backgroundColor: "#DDAF6B",
-    color: "#3B2218",
+    backgroundColor: tokens.colorBrandBackground2,
+    color: tokens.colorBrandForeground1,
+    borderColor: tokens.colorBrandStroke2,
   },
   arrow: {
     color: tokens.colorNeutralForeground3,

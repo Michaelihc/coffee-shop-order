@@ -6,6 +6,7 @@ import { resolveTheme } from "./coffee-theme";
 import { app, authentication } from "@microsoft/teams-js";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
+import "./global.css";
 import { TeamsContextProvider } from "./hooks/useTeamsContext";
 import {
   clearUserHeaders,
@@ -16,6 +17,12 @@ import { pushAuthDebug } from "./auth-debug";
 import { initI18n } from "./i18n";
 
 let cachedAccessToken: string | undefined;
+
+function applyDocumentTheme(teamsTheme: string | undefined) {
+  const normalizedTheme =
+    teamsTheme === "dark" || teamsTheme === "contrast" ? teamsTheme : "light";
+  document.documentElement.dataset.appTheme = normalizedTheme;
+}
 
 function summarizeToken(token: string): string {
   try {
@@ -81,9 +88,12 @@ function ThemedApp({
   const [theme, setTheme] = React.useState(initialTheme);
 
   React.useEffect(() => {
+    applyDocumentTheme(teamsContext?.app?.theme);
+
     // Listen for live theme changes when user switches Teams appearance
     try {
       app.registerOnThemeChangeHandler((newTheme: string) => {
+        applyDocumentTheme(newTheme);
         setTheme(resolveTheme(newTheme));
       });
     } catch {
@@ -160,6 +170,7 @@ async function init() {
   await initI18n(teamsContext?.app?.locale);
 
   const initialTheme = resolveTheme(teamsContext?.app?.theme);
+  applyDocumentTheme(teamsContext?.app?.theme);
 
   const root = createRoot(document.getElementById("root")!);
   root.render(

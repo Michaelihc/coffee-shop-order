@@ -101,10 +101,7 @@ function fireBrowserNotification(title: string, body: string) {
 
 async function sendTeamsNotification(title: string, body: string) {
   try {
-    console.log("[Client] Getting Teams context...");
-    const context = await app.getContext();
-    console.log("[Client] Teams user ID:", context.user?.id);
-    console.log("[Client] Sending notification:", { title, body });
+    await app.getContext();
 
     const response = await fetch("/api/notifications/send", {
       method: "POST",
@@ -114,10 +111,7 @@ async function sendTeamsNotification(title: string, body: string) {
       }),
       body: JSON.stringify({ title, body }),
     });
-
-    console.log("[Client] Response status:", response.status);
-    const result = await response.json();
-    console.log("[Client] Response body:", result);
+    await response.json().catch(() => null);
   } catch (err) {
     console.error("[Client] Failed to send Teams notification:", err);
   }
@@ -213,16 +207,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       bodyParams?: Record<string, string | number>,
       options?: AddNotificationOptions,
     ) => {
-      console.log("[Notifications] addNotification called", { type, titleKey, bodyKey, bodyParams });
       const p = prefsRef.current;
-      console.log("[Notifications] Preferences:", { enabled: p.enabled, typeEnabled: p.types[type] });
 
       if (!p.enabled) {
-        console.log("[Notifications] Notifications disabled globally");
         return;
       }
       if (!p.types[type]) {
-        console.log("[Notifications] Notification type disabled:", type);
         return;
       }
 
@@ -236,20 +226,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         read: false,
       };
 
-      console.log("[Notifications] Adding notification to list:", notif);
       setNotifications((prev) => [notif, ...prev].slice(0, MAX_NOTIFICATIONS));
 
       // Translate and send Teams notification
       const title = i18n.t(titleKey);
       const body = i18n.t(bodyKey, bodyParams);
-      console.log("[Notifications] Translated text:", { title, body });
       if (options?.sendToTeams !== false) {
         sendTeamsNotification(title, body);
       }
 
       // Browser notification
       if (p.browserNotifications) {
-        console.log("[Notifications] Firing browser notification");
         fireBrowserNotification(title, body);
       }
     },
@@ -274,16 +261,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const checkStudentOrders = useCallback(
     (prev: Order[], next: Order[]) => {
-      console.log("[Notifications] checkStudentOrders called", { prevCount: prev.length, nextCount: next.length });
       const prevMap = new Map(prev.map((o) => [o.id, o.status]));
       for (const order of next) {
         const oldStatus = prevMap.get(order.id);
-        console.log("[Notifications] Checking order", { id: order.id, oldStatus, newStatus: order.status });
         if (oldStatus === order.status) continue;
 
         // New order that wasn't in previous set → confirmed
         if (!oldStatus && order.status === "confirmed") {
-          console.log("[Notifications] Triggering order_confirmed for", order.id);
           addNotification(
             "order_confirmed",
             "notifications.orderConfirmed",
@@ -294,7 +278,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
         // Status changed to preparing
         if (oldStatus && oldStatus !== "preparing" && order.status === "preparing") {
-          console.log("[Notifications] Triggering order_preparing for", order.id);
           addNotification(
             "order_preparing",
             "notifications.orderPreparing",
@@ -305,7 +288,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
         // Status changed to ready
         if (oldStatus && oldStatus !== "ready" && order.status === "ready") {
-          console.log("[Notifications] Triggering order_ready for", order.id);
           addNotification(
             "order_ready",
             "notifications.orderReady",
@@ -315,7 +297,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           );
         }
         if (oldStatus && oldStatus !== "cancelled" && order.status === "cancelled") {
-          console.log("[Notifications] Triggering order_cancelled for", order.id);
           addNotification(
             "order_cancelled",
             "notifications.orderCancelled",
@@ -341,14 +322,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const checkStaffOrders = useCallback(
     (prev: Order[], next: Order[]) => {
-      console.log("[Notifications] checkStaffOrders called", { prevCount: prev.length, nextCount: next.length });
       const prevIds = new Set(prev.map((o) => o.id));
       const prevMap = new Map(prev.map((o) => [o.id, o.status]));
 
       for (const order of next) {
         // Brand new order
         if (!prevIds.has(order.id) && order.status === "confirmed") {
-          console.log("[Notifications] Triggering new_order for", order.id);
           addNotification(
             "new_order",
             "notifications.newOrder",
@@ -359,7 +338,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         // Order became ready (staff may need to place in grid)
         const oldStatus = prevMap.get(order.id);
         if (oldStatus && oldStatus !== "ready" && order.status === "ready") {
-          console.log("[Notifications] Triggering order_ready_staff for", order.id);
           addNotification(
             "order_ready_staff",
             "notifications.orderReady",

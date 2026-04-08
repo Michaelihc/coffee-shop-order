@@ -18,8 +18,22 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
-import { api } from "../../api-client";
+import {
+  deleteWindow,
+  fetchSettings as fetchSettingsData,
+  fetchWindows as fetchWindowsData,
+  saveWindow,
+  updateSetting,
+  updateWindow,
+} from "../../admin-api";
 import type { PickupWindow } from "../../../types/models";
+
+const DEFAULT_SETTING_VALUES = {
+  max_items_per_order: "10",
+  max_order_total_cents: "25000",
+  daily_spend_limit_cents: "30000",
+  enforce_window_cap: "1",
+} as const;
 
 const useStyles = makeStyles({
   container: {
@@ -151,6 +165,10 @@ export function ConfigPage() {
   const [windows, setWindows] = useState<PickupWindow[]>([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settingDrafts, setSettingDrafts] = useState<Record<string, string>>({
+    ...DEFAULT_SETTING_VALUES,
+  });
+  const [windowCapDrafts, setWindowCapDrafts] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,16 +179,33 @@ export function ConfigPage() {
   const [saving, setSaving] = useState(false);
 
   function fetchWindows() {
-    api
-      .get<{ windows: PickupWindow[] }>("/api/admin/windows")
-      .then((data) => setWindows(data.windows))
+    fetchWindowsData()
+      .then((data) => {
+        setWindows(data.windows);
+        setWindowCapDrafts(
+          Object.fromEntries(
+            data.windows.map((window) => [window.id, String(window.madeToOrderCap)])
+          )
+        );
+      })
       .finally(() => setLoading(false));
   }
 
   function fetchSettings() {
-    api
-      .get<{ settings: Record<string, string> }>("/api/admin/settings")
-      .then((data) => setSettings(data.settings));
+    fetchSettingsData()
+      .then((data) => {
+        setSettings(data.settings);
+        setSettingDrafts({
+          max_items_per_order:
+            data.settings.max_items_per_order || DEFAULT_SETTING_VALUES.max_items_per_order,
+          max_order_total_cents:
+            data.settings.max_order_total_cents || DEFAULT_SETTING_VALUES.max_order_total_cents,
+          daily_spend_limit_cents:
+            data.settings.daily_spend_limit_cents || DEFAULT_SETTING_VALUES.daily_spend_limit_cents,
+          enforce_window_cap:
+            data.settings.enforce_window_cap || DEFAULT_SETTING_VALUES.enforce_window_cap,
+        });
+      });
   }
 
   useEffect(() => {
@@ -183,21 +218,90 @@ export function ConfigPage() {
     setSuccess(null);
   }
 
-  async function handleCapChange(windowId: string, cap: number) {
-    await api.put(`/api/admin/windows/${windowId}`, { madeToOrderCap: cap });
-    fetchWindows();
+  async function commitWindowCap(windowId: string) {
+    clearMessages();
+    const rawValue = windowCapDrafts[windowId];
+    const cap = Number.parseInt(rawValue, 10);
+    const currentWindow = windows.find((window) => window.id === windowId);
+    if (!currentWindow) {
+      return;
+    }
+
+    if (!Number.isInteger(cap) || cap < 0) {
+      setError(t("common.failedToSave"));
+      setWindowCapDrafts((prev) => ({
+        ...prev,
+        [windowId]: String(currentWindow.madeToOrderCap),
+      }));
+      return;
+    }
+
+    if (cap === currentWindow.madeToOrderCap) {
+      return;
+    }
+
+    try {
+      await updateWindow(windowId, { madeToOrderCap: cap });
+      setSuccess(t("config.windowUpdated"));
+      fetchWindows();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+      setWindowCapDrafts((prev) => ({
+        ...prev,
+        [windowId]: String(currentWindow.madeToOrderCap),
+      }));
+    }
   }
 
   async function handleToggleActive(windowId: string, isActive: boolean) {
-    await api.put(`/api/admin/windows/${windowId}`, { isActive });
+    await updateWindow(windowId, { isActive });
     fetchWindows();
   }
 
   async function handleSettingChange(key: string, value: string) {
-    await api.patch(`/api/admin/settings/${key}`, { value });
+    await updateSetting(key, value);
     setSuccess(t("config.settingUpdated"));
     fetchSettings();
     setTimeout(() => setSuccess(null), 2000);
+  }
+
+  async function commitSetting(key: "max_items_per_order" | "max_order_total_cents" | "daily_spend_limit_cents") {
+    clearMessages();
+    const rawValue = settingDrafts[key];
+    const nextValue = Number.parseInt(rawValue, 10);
+    const currentValue = settings[key] || DEFAULT_SETTING_VALUES[key];
+    if (!Number.isInteger(nextValue) || nextValue <= 0) {
+      setError(t("common.failedToSave"));
+      setSettingDrafts((prev) => ({
+        ...prev,
+        [key]: currentValue,
+      }));
+      return;
+    }
+
+    if (String(nextValue) === currentValue) {
+      return;
+    }
+
+    try {
+      await handleSettingChange(key, String(nextValue));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+      setSettingDrafts((prev) => ({
+        ...prev,
+        [key]: currentValue,
+      }));
+    }
+  }
+
+  function handleCommitOnEnter(
+    event: React.KeyboardEvent<HTMLInputElement>,
+    commit: () => void
+  ) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    }
   }
 
   function openAddWindow() {
@@ -222,16 +326,16 @@ export function ConfigPage() {
     clearMessages();
     setSaving(true);
     try {
+      await saveWindow({
+        id: windowForm.id,
+        label: windowForm.label,
+        startsAt: windowForm.startsAt,
+        endsAt: windowForm.endsAt,
+        madeToOrderCap: windowForm.madeToOrderCap,
+      }, editingWindowId);
       if (editingWindowId) {
-        await api.put(`/api/admin/windows/${editingWindowId}`, {
-          label: windowForm.label,
-          startsAt: windowForm.startsAt,
-          endsAt: windowForm.endsAt,
-          madeToOrderCap: windowForm.madeToOrderCap,
-        });
         setSuccess(t("config.windowUpdated"));
       } else {
-        await api.post("/api/admin/windows", windowForm);
         setSuccess(t("config.windowCreated"));
       }
       setDialogOpen(false);
@@ -247,9 +351,7 @@ export function ConfigPage() {
     if (!confirm(t("config.deleteConfirm"))) return;
     clearMessages();
     try {
-      const result = await api.delete<{ deleted: boolean; deactivated?: boolean }>(
-        `/api/admin/windows/${windowId}`
-      );
+      const result = await deleteWindow(windowId);
       if (result.deactivated) {
         setSuccess(t("config.windowDeactivated"));
       } else {
@@ -320,13 +422,15 @@ export function ConfigPage() {
                 className={styles.capInput}
                 type="number"
                 size="small"
-                value={String(w.madeToOrderCap)}
-                onChange={(_, data) => {
-                  const val = parseInt(data.value, 10);
-                  if (!isNaN(val) && val >= 0) {
-                    handleCapChange(w.id, val);
-                  }
-                }}
+                value={windowCapDrafts[w.id] ?? String(w.madeToOrderCap)}
+                onChange={(_, data) =>
+                  setWindowCapDrafts((prev) => ({
+                    ...prev,
+                    [w.id]: data.value,
+                  }))
+                }
+                onBlur={() => void commitWindowCap(w.id)}
+                onKeyDown={(event) => handleCommitOnEnter(event, () => void commitWindowCap(w.id))}
               />
             </div>
             <div className={styles.row}>
@@ -381,13 +485,15 @@ export function ConfigPage() {
               className={styles.capInput}
               type="number"
               size="small"
-              value={settings.max_items_per_order ?? "10"}
-              onChange={(_, data) => {
-                const val = parseInt(data.value, 10);
-                if (!isNaN(val) && val > 0) {
-                  handleSettingChange("max_items_per_order", String(val));
-                }
-              }}
+              value={settingDrafts.max_items_per_order}
+              onChange={(_, data) =>
+                setSettingDrafts((prev) => ({
+                  ...prev,
+                  max_items_per_order: data.value,
+                }))
+              }
+              onBlur={() => void commitSetting("max_items_per_order")}
+              onKeyDown={(event) => handleCommitOnEnter(event, () => void commitSetting("max_items_per_order"))}
             />
           </div>
           <div className={styles.row}>
@@ -396,13 +502,15 @@ export function ConfigPage() {
               className={styles.capInput}
               type="number"
               size="small"
-              value={settings.max_order_total_cents ?? "25000"}
-              onChange={(_, data) => {
-                const val = parseInt(data.value, 10);
-                if (!isNaN(val) && val > 0) {
-                  handleSettingChange("max_order_total_cents", String(val));
-                }
-              }}
+              value={settingDrafts.max_order_total_cents}
+              onChange={(_, data) =>
+                setSettingDrafts((prev) => ({
+                  ...prev,
+                  max_order_total_cents: data.value,
+                }))
+              }
+              onBlur={() => void commitSetting("max_order_total_cents")}
+              onKeyDown={(event) => handleCommitOnEnter(event, () => void commitSetting("max_order_total_cents"))}
             />
           </div>
           <div className={styles.row}>
@@ -411,13 +519,15 @@ export function ConfigPage() {
               className={styles.capInput}
               type="number"
               size="small"
-              value={settings.daily_spend_limit_cents ?? "30000"}
-              onChange={(_, data) => {
-                const val = parseInt(data.value, 10);
-                if (!isNaN(val) && val > 0) {
-                  handleSettingChange("daily_spend_limit_cents", String(val));
-                }
-              }}
+              value={settingDrafts.daily_spend_limit_cents}
+              onChange={(_, data) =>
+                setSettingDrafts((prev) => ({
+                  ...prev,
+                  daily_spend_limit_cents: data.value,
+                }))
+              }
+              onBlur={() => void commitSetting("daily_spend_limit_cents")}
+              onKeyDown={(event) => handleCommitOnEnter(event, () => void commitSetting("daily_spend_limit_cents"))}
             />
           </div>
           <span style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 }}>

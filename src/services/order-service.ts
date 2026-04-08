@@ -1,4 +1,6 @@
 import { getDb } from "../db/connection";
+import { getCurrentBusinessDate, getBusinessDate, toSqlTimestamp } from "./business-time-service";
+import { allocateNextOrderId } from "./order-id-service";
 import { isWindowAcceptingOrders } from "./capacity";
 import {
   checkAndReserveStock,
@@ -7,42 +9,27 @@ import {
 } from "./inventory-service";
 import { assignGridSlot, clearGridSlotByOrder } from "./grid-service";
 import { getPaymentProvider } from "./payment";
+import { recordPaymentReconciliationIncident } from "./payment-reconciliation-service";
 import { getSettingInt } from "./settings-service";
+import { logError, logInfo, logWarn } from "./logger";
 import type { CancelReason, Order, OrderItem, OrderStatus } from "../types/models";
 import type { CreateOrderRequest } from "../types/api";
+import { getOrderById } from "./order-repository";
 
-interface OrderRow {
-  id: string;
-  student_aad_id: string;
-  student_name: string;
-  pickup_window_id: string;
-  payment_method: string;
-  status: string;
-  pickup_code: string | null;
-  grid_slot: string | null;
-  total_cents: number;
-  payment_ref: string | null;
-  payment_settled_at: string | null;
-  cancel_reason: string | null;
-  cancel_note: string | null;
-  created_at: string;
-  updated_at: string;
-  ready_at: string | null;
-  collected_at: string | null;
-  notes: string | null;
-}
-
-interface OrderItemRow {
-  id: number;
-  order_id: string;
-  menu_item_id: string;
-  item_name: string;
-  price_cents: number;
+interface ResolvedOrderItem {
+  menuItemId: string;
   quantity: number;
-  item_class: string;
+  name: string;
+  priceCents: number;
+  itemClass: string;
 }
 
-// Characters that avoid ambiguity (no 0/O, 1/I/L)
+class OrderCreationFailure extends Error {
+  constructor(public readonly userMessage: string) {
+    super(userMessage);
+  }
+}
+
 const PICKUP_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const CANCEL_REASONS = new Set<CancelReason>(["out-of-stock", "over-capacity", "other"]);
 
@@ -52,27 +39,6 @@ function generatePickupCode(): string {
     code += PICKUP_CODE_CHARS[Math.floor(Math.random() * PICKUP_CODE_CHARS.length)];
   }
   return code;
-}
-
-function generateOrderId(): string {
-  const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Letter prefix cycles A-Z daily based on day of year
-  const dayOfYear = Math.floor(
-    (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000
-  );
-  const letter = String.fromCharCode(65 + (dayOfYear % 26));
-
-  // Count today's orders for sequence number
-  const row = db
-    .prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE date(created_at) = ?"
-    )
-    .get(today) as { n: number };
-
-  const seq = String(row.n + 1).padStart(3, "0");
-  return `${letter}${seq}`;
 }
 
 function validateCreateOrderRequest(
@@ -133,34 +99,11 @@ function validateCreateOrderRequest(
   };
 }
 
-function rowToOrder(row: OrderRow): Order {
-  return {
-    id: row.id,
-    studentAadId: row.student_aad_id,
-    studentName: row.student_name,
-    pickupWindowId: row.pickup_window_id,
-    paymentMethod: row.payment_method as Order["paymentMethod"],
-    status: row.status as OrderStatus,
-    pickupCode: row.pickup_code,
-    gridSlot: row.grid_slot,
-    totalCents: row.total_cents,
-    paymentRef: row.payment_ref,
-    paymentSettledAt: row.payment_settled_at,
-    cancelReason: (row.cancel_reason as CancelReason | null) ?? null,
-    cancelNote: row.cancel_note,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    readyAt: row.ready_at,
-    collectedAt: row.collected_at,
-    notes: row.notes,
-  };
-}
-
 function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function getStudentDailySpendCents(studentId: string, date = new Date().toISOString().slice(0, 10)): number {
+function getStudentDailySpendCents(studentId: string, businessDate = getCurrentBusinessDate()): number {
   const db = getDb();
   const row = db
     .prepare(
@@ -168,52 +111,25 @@ function getStudentDailySpendCents(studentId: string, date = new Date().toISOStr
        FROM orders
        WHERE student_aad_id = ?
          AND status != 'cancelled'
-         AND date(created_at) = ?`
+         AND business_date = ?`
     )
-    .get(studentId, date) as { total: number };
+    .get(studentId, businessDate) as { total: number };
 
   return row.total ?? 0;
 }
 
-function rowToOrderItem(row: OrderItemRow): OrderItem {
-  return {
-    id: row.id,
-    orderId: row.order_id,
-    menuItemId: row.menu_item_id,
-    itemName: row.item_name,
-    priceCents: row.price_cents,
-    quantity: row.quantity,
-    itemClass: row.item_class as OrderItem["itemClass"],
-  };
-}
-
-export async function createOrder(
-  studentId: string,
-  studentName: string,
-  input: CreateOrderRequest | unknown
-): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
-  const validation = validateCreateOrderRequest(input);
-  if (validation.ok === false) {
-    return { ok: false, error: validation.error };
-  }
-
-  const req = validation.value;
-  const db = getDb();
-
-  // Resolve items and calculate total
-  const resolvedItems: {
-    menuItemId: string;
-    quantity: number;
-    name: string;
-    priceCents: number;
-    itemClass: string;
-  }[] = [];
+function resolveOrderItems(req: CreateOrderRequest): { ok: true; items: ResolvedOrderItem[] } | { ok: false; error: string } {
+  const resolvedItems: ResolvedOrderItem[] = [];
 
   for (const item of req.items) {
     const menuItem = getMenuItemById(item.menuItemId);
-    if (!menuItem) return { ok: false, error: `Item not found: ${item.menuItemId}` };
-    if (!menuItem.isAvailable)
+    if (!menuItem) {
+      return { ok: false, error: `Item not found: ${item.menuItemId}` };
+    }
+    if (!menuItem.isAvailable) {
       return { ok: false, error: `${menuItem.name} is not available` };
+    }
+
     resolvedItems.push({
       menuItemId: menuItem.id,
       quantity: item.quantity,
@@ -227,27 +143,33 @@ export async function createOrder(
     return { ok: false, error: "At least one valid item is required" };
   }
 
-  const hasMadeToOrder = resolvedItems.some((i) => i.itemClass === "made-to-order");
+  return { ok: true, items: resolvedItems };
+}
 
-  // Check order limits
-  const totalQuantity = resolvedItems.reduce((sum, i) => sum + i.quantity, 0);
+function validateOrderLimits(
+  studentId: string,
+  resolvedItems: ResolvedOrderItem[],
+  businessDate: string
+): { ok: true; totalCents: number; hasMadeToOrder: boolean } | { ok: false; error: string } {
+  const hasMadeToOrder = resolvedItems.some((item) => item.itemClass === "made-to-order");
+  const totalQuantity = resolvedItems.reduce((sum, item) => sum + item.quantity, 0);
   const maxItems = getSettingInt("max_items_per_order", 10);
+
   if (totalQuantity > maxItems) {
     return { ok: false, error: `Order exceeds maximum of ${maxItems} items` };
   }
 
   const totalCents = resolvedItems.reduce(
-    (sum, i) => sum + i.priceCents * i.quantity,
+    (sum, item) => sum + item.priceCents * item.quantity,
     0
   );
-
   const maxTotal = getSettingInt("max_order_total_cents", 25000);
   if (totalCents > maxTotal) {
     return { ok: false, error: `Order exceeds maximum of ¥${(maxTotal / 100).toFixed(2)}` };
   }
 
   const dailySpendLimit = getSettingInt("daily_spend_limit_cents", 30000);
-  const spentToday = getStudentDailySpendCents(studentId);
+  const spentToday = getStudentDailySpendCents(studentId, businessDate);
   if (spentToday + totalCents > dailySpendLimit) {
     return {
       ok: false,
@@ -255,165 +177,261 @@ export async function createOrder(
     };
   }
 
-  // Check window capacity
-  const windowCheck = isWindowAcceptingOrders(req.pickupWindowId, hasMadeToOrder);
-  if (!windowCheck.ok) return { ok: false, error: windowCheck.reason! };
+  return { ok: true, totalCents, hasMadeToOrder };
+}
 
-  // Process payment
-  const orderId = generateOrderId();
+async function refundOrRecordIncident(input: {
+  orderId: string;
+  transactionRef: string;
+  amountCents: number;
+  userMessage: string;
+  failure: unknown;
+  paymentMode?: "stub" | "live";
+}): Promise<string> {
+  if (input.paymentMode === "stub") {
+    logWarn("order.create.stub_payment_reverted", {
+      orderId: input.orderId,
+      transactionRef: input.transactionRef,
+      amountCents: input.amountCents,
+      failure: input.failure,
+    });
+    return "Failed to create order. No payment was taken. Please try again.";
+  }
+
+  const paymentProvider = getPaymentProvider();
+  const refundResult = await paymentProvider.refund(input.transactionRef, input.amountCents);
+  if (refundResult.ok === false) {
+    const reason =
+      input.failure instanceof Error ? input.failure.message : String(input.failure);
+    recordPaymentReconciliationIncident({
+      orderId: input.orderId,
+      transactionRef: input.transactionRef,
+      amountCents: input.amountCents,
+      incidentType: "refund_failed_after_order_create_failure",
+      details: `${reason}; refund failed: ${refundResult.reason}`,
+    });
+    logError("order.create.refund_failed", {
+      orderId: input.orderId,
+      transactionRef: input.transactionRef,
+      amountCents: input.amountCents,
+      failure: input.failure,
+      refundReason: refundResult.reason,
+    });
+    return "Payment was processed but the order could not be completed. Staff has been notified to reconcile the transaction.";
+  }
+
+  logWarn("order.create.refunded_after_failure", {
+    orderId: input.orderId,
+    transactionRef: input.transactionRef,
+    amountCents: input.amountCents,
+    failure: input.failure,
+  });
+  return input.userMessage;
+}
+
+export async function createOrder(
+  studentId: string,
+  studentName: string,
+  input: CreateOrderRequest | unknown
+): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
+  let stage = "validate-request";
+
+  const validation = validateCreateOrderRequest(input);
+  if (validation.ok === false) {
+    return { ok: false, error: validation.error };
+  }
+
+  const req = validation.value;
+  const resolved = resolveOrderItems(req);
+  if (resolved.ok === false) {
+    return { ok: false, error: resolved.error };
+  }
+
+  const orderCreatedAt = new Date();
+  const createdAt = toSqlTimestamp(orderCreatedAt);
+  const businessDate = getBusinessDate(orderCreatedAt);
+  logInfo("order.create.start", {
+    studentId,
+    pickupWindowId: req.pickupWindowId,
+    paymentMethod: req.paymentMethod,
+    itemCount: req.items.length,
+    businessDate,
+  });
+
+  stage = "validate-limits";
+  const preChargeLimitCheck = validateOrderLimits(studentId, resolved.items, businessDate);
+  if (preChargeLimitCheck.ok === false) {
+    logWarn("order.create.rejected", {
+      stage,
+      studentId,
+      businessDate,
+      reason: preChargeLimitCheck.error,
+    });
+    return { ok: false, error: preChargeLimitCheck.error };
+  }
+
+  stage = "validate-window";
+  const initialWindowCheck = isWindowAcceptingOrders(
+    req.pickupWindowId,
+    preChargeLimitCheck.hasMadeToOrder,
+    businessDate
+  );
+  if (!initialWindowCheck.ok) {
+    logWarn("order.create.rejected", {
+      stage,
+      studentId,
+      businessDate,
+      reason: initialWindowCheck.reason,
+    });
+    return { ok: false, error: initialWindowCheck.reason! };
+  }
+
+  stage = "allocate-order-id";
+  const orderId = allocateNextOrderId(businessDate);
   const payment = getPaymentProvider();
+  logInfo("order.create.order_id_allocated", {
+    orderId,
+    businessDate,
+    paymentMode: payment.mode ?? "live",
+  });
+
+  stage = "charge";
   const paymentResult = await payment.charge({
     studentId,
     studentName,
-    amountCents: totalCents,
+    amountCents: preChargeLimitCheck.totalCents,
     orderId,
     method: req.paymentMethod,
   });
 
-  if (!paymentResult.ok) {
-    return { ok: false, error: `Payment failed: ${(paymentResult as { ok: false; reason: string }).reason}` };
-  }
-
-  // Reserve stock (inside transaction)
-  const txResult = db.transaction(() => {
-    const stockResult = checkAndReserveStock(
-      resolvedItems.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-    );
-    if (!stockResult.ok) {
-      return { ok: false as const, error: `${stockResult.failedItem} is out of stock` };
-    }
-
-    const paymentSettledAt =
-      req.paymentMethod === "student-card" ? new Date().toISOString() : null;
-
-    // Insert order
-    db.prepare(
-      `INSERT INTO orders (id, student_aad_id, student_name, pickup_window_id, payment_method, status, total_cents, payment_ref, payment_settled_at, notes)
-       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)`
-    ).run(
+  if (paymentResult.ok === false) {
+    logWarn("order.create.payment_failed", {
       orderId,
       studentId,
-      studentName,
-      req.pickupWindowId,
-      req.paymentMethod,
-      totalCents,
-      paymentResult.transactionRef,
-      paymentSettledAt,
-      req.notes || null
-    );
+      paymentMethod: req.paymentMethod,
+      paymentMode: payment.mode ?? "live",
+      reason: paymentResult.reason,
+    });
+    return { ok: false, error: `Payment failed: ${paymentResult.reason}` };
+  }
 
-    // Insert order items
-    const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, item_name, price_cents, quantity, item_class)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    for (const item of resolvedItems) {
-      insertItem.run(orderId, item.menuItemId, item.name, item.priceCents, item.quantity, item.itemClass);
-    }
+  logInfo("order.create.payment_succeeded", {
+    orderId,
+    studentId,
+    paymentMethod: req.paymentMethod,
+    paymentMode: payment.mode ?? "live",
+    transactionRef: paymentResult.transactionRef,
+    amountCents: preChargeLimitCheck.totalCents,
+  });
 
-    return null; // success
-  })();
+  try {
+    const db = getDb();
+    stage = "persist";
+    db.transaction(() => {
+      const limitCheck = validateOrderLimits(studentId, resolved.items, businessDate);
+      if (limitCheck.ok === false) {
+        throw new OrderCreationFailure(limitCheck.error);
+      }
 
-  if (txResult !== null) return txResult;
+      const windowCheck = isWindowAcceptingOrders(
+        req.pickupWindowId,
+        limitCheck.hasMadeToOrder,
+        businessDate
+      );
+      if (!windowCheck.ok) {
+        throw new OrderCreationFailure(windowCheck.reason!);
+      }
+
+      const stockResult = checkAndReserveStock(
+        resolved.items.map((item) => ({
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+        }))
+      );
+      if (!stockResult.ok) {
+        throw new OrderCreationFailure(`${stockResult.failedItem} is out of stock`);
+      }
+
+      const paymentSettledAt =
+        req.paymentMethod === "student-card" ? createdAt : null;
+
+      db.prepare(
+        `INSERT INTO orders (
+          id,
+          student_aad_id,
+          student_name,
+          pickup_window_id,
+          payment_method,
+          status,
+          total_cents,
+          payment_ref,
+          payment_settled_at,
+          business_date,
+          created_at,
+          updated_at,
+          notes
+        ) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        orderId,
+        studentId,
+        studentName,
+        req.pickupWindowId,
+        req.paymentMethod,
+        preChargeLimitCheck.totalCents,
+        paymentResult.transactionRef,
+        paymentSettledAt,
+        businessDate,
+        createdAt,
+        createdAt,
+        req.notes || null
+      );
+
+      const insertItem = db.prepare(
+        `INSERT INTO order_items (order_id, menu_item_id, item_name, price_cents, quantity, item_class)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of resolved.items) {
+        insertItem.run(orderId, item.menuItemId, item.name, item.priceCents, item.quantity, item.itemClass);
+      }
+    })();
+  } catch (error) {
+    logError("order.create.persist_failed", {
+      stage,
+      orderId,
+      studentId,
+      businessDate,
+      paymentMethod: req.paymentMethod,
+      paymentMode: payment.mode ?? "live",
+      transactionRef: paymentResult.transactionRef,
+      amountCents: preChargeLimitCheck.totalCents,
+      error,
+    });
+    const errorMessage = await refundOrRecordIncident({
+      orderId,
+      transactionRef: paymentResult.transactionRef,
+      amountCents: preChargeLimitCheck.totalCents,
+      userMessage:
+        error instanceof OrderCreationFailure
+          ? error.userMessage
+          : "Failed to create order after payment; a refund is being processed.",
+      failure: error,
+      paymentMode: payment.mode,
+    });
+
+    return { ok: false, error: errorMessage };
+  }
 
   const order = getOrderById(orderId)!;
+  logInfo("order.create.success", {
+    orderId,
+    studentId,
+    businessDate,
+    paymentMethod: req.paymentMethod,
+    paymentMode: payment.mode ?? "live",
+    totalCents: order.totalCents,
+  });
   return { ok: true, order };
 }
-
-export function getOrderById(orderId: string): Order | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM orders WHERE id = ?")
-    .get(orderId) as OrderRow | undefined;
-  if (!row) return null;
-
-  const order = rowToOrder(row);
-  order.items = getOrderItems(orderId);
-  return order;
-}
-
-export function getOrderItems(orderId: string): OrderItem[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM order_items WHERE order_id = ?")
-    .all(orderId) as OrderItemRow[];
-  return rows.map(rowToOrderItem);
-}
-
-export function getStudentOrders(studentId: string, options?: { allTime?: boolean }): Order[] {
-  const db = getDb();
-  let sql: string;
-  let params: unknown[];
-
-  if (options?.allTime) {
-    sql = "SELECT * FROM orders WHERE student_aad_id = ? ORDER BY created_at DESC";
-    params = [studentId];
-  } else {
-    const today = new Date().toISOString().slice(0, 10);
-    sql = "SELECT * FROM orders WHERE student_aad_id = ? AND date(created_at) = ? ORDER BY created_at DESC";
-    params = [studentId, today];
-  }
-
-  const rows = db.prepare(sql).all(...params) as OrderRow[];
-  return rows.map((row) => {
-    const order = rowToOrder(row);
-    order.items = getOrderItems(order.id);
-    return order;
-  });
-}
-
-export function getAdminOrders(filters?: {
-  status?: string;
-  windowId?: string;
-  date?: string;
-}): Order[] {
-  const db = getDb();
-  const targetDate = filters?.date || new Date().toISOString().slice(0, 10);
-  let sql = "SELECT * FROM orders WHERE date(created_at) = ?";
-  const params: unknown[] = [targetDate];
-
-  if (filters?.status) {
-    const statuses = filters.status.split(",");
-    sql += ` AND status IN (${statuses.map(() => "?").join(",")})`;
-    params.push(...statuses);
-  }
-  if (filters?.windowId) {
-    sql += " AND pickup_window_id = ?";
-    params.push(filters.windowId);
-  }
-
-  sql += " ORDER BY created_at DESC";
-
-  const rows = db.prepare(sql).all(...params) as OrderRow[];
-  return rows.map((row) => {
-    const order = rowToOrder(row);
-    order.items = getOrderItems(order.id);
-    return order;
-  });
-}
-
-export function getOrderCounts(): Record<OrderStatus, number> {
-  const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
-  const rows = db
-    .prepare(
-      "SELECT status, COUNT(*) as n FROM orders WHERE date(created_at) = ? GROUP BY status"
-    )
-    .all(today) as { status: string; n: number }[];
-
-  const counts: Record<string, number> = {
-    confirmed: 0,
-    preparing: 0,
-    ready: 0,
-    collected: 0,
-    cancelled: 0,
-  };
-  for (const row of rows) {
-    counts[row.status] = row.n;
-  }
-  return counts as Record<OrderStatus, number>;
-}
-
 const VALID_TRANSITIONS: Record<string, string[]> = {
   confirmed: ["preparing", "cancelled"],
   preparing: ["ready", "cancelled"],
@@ -437,7 +455,7 @@ export function updateOrderStatus(
     };
   }
 
-  const now = new Date().toISOString();
+  const now = toSqlTimestamp();
   const cancelReason =
     typeof options?.cancelReason === "string" ? options.cancelReason.trim() : "";
   const cancelNote =
@@ -469,13 +487,12 @@ export function updateOrderStatus(
           "UPDATE orders SET status = ?, collected_at = ?, updated_at = ? WHERE id = ?"
         ).run(newStatus, now, now, orderId);
       } else if (newStatus === "cancelled") {
-        // Restock premade items
         if (order.items) {
           restockItems(
-            order.items.map((i) => ({
-              menuItemId: i.menuItemId,
-              quantity: i.quantity,
-              itemClass: i.itemClass,
+            order.items.map((item) => ({
+              menuItemId: item.menuItemId,
+              quantity: item.quantity,
+              itemClass: item.itemClass,
             }))
           );
         }

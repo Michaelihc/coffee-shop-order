@@ -6,6 +6,8 @@ import type { PaymentProvider, ChargeParams, PaymentResult } from "./types";
  * Always returns success. Replace with the school's real payment adapter in Phase 2.
  */
 export class StubPaymentProvider implements PaymentProvider {
+  readonly mode = "stub" as const;
+
   async charge(params: ChargeParams): Promise<PaymentResult> {
     // pay-at-collect orders are always accepted (payment deferred to counter)
     // student-card orders are accepted with a stub reference

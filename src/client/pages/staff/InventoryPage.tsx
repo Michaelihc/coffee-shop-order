@@ -19,7 +19,15 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
-import { api, getRequestHeaders } from "../../api-client";
+import {
+  deleteInventoryItem,
+  fetchInventory,
+  removeInventoryImage,
+  saveInventoryItem,
+  updateInventoryAvailability,
+  updateInventoryStock,
+  uploadInventoryImage,
+} from "../../admin-api";
 import type { MenuItem, Category } from "../../../types/models";
 
 const useStyles = makeStyles({
@@ -84,11 +92,6 @@ const useStyles = makeStyles({
   },
 });
 
-interface InventoryResponse {
-  items: MenuItem[];
-  categories: Category[];
-}
-
 const emptyForm = {
   id: "",
   categoryId: "",
@@ -115,8 +118,7 @@ export function InventoryPage() {
   const [saving, setSaving] = useState(false);
 
   function fetchItems() {
-    api
-      .get<InventoryResponse>("/api/admin/inventory")
+    fetchInventory()
       .then((data) => {
         setItems(data.items);
         setCategories(data.categories);
@@ -134,12 +136,12 @@ export function InventoryPage() {
   }
 
   async function handleStockChange(itemId: string, stockCount: number) {
-    await api.patch(`/api/admin/inventory/${itemId}`, { stockCount });
+    await updateInventoryStock(itemId, stockCount);
     fetchItems();
   }
 
   async function handleToggleAvailable(itemId: string, isAvailable: boolean) {
-    await api.patch(`/api/admin/inventory/${itemId}`, { isAvailable });
+    await updateInventoryAvailability(itemId, isAvailable);
     fetchItems();
   }
 
@@ -167,26 +169,18 @@ export function InventoryPage() {
     clearMessages();
     setSaving(true);
     try {
+      await saveInventoryItem({
+        id: form.id,
+        categoryId: form.categoryId,
+        name: form.name,
+        description: form.description || null,
+        priceCents: form.priceCents,
+        itemClass: form.itemClass,
+        stockCount: form.stockCount,
+      }, editingId);
       if (editingId) {
-        await api.put(`/api/admin/inventory/${editingId}`, {
-          categoryId: form.categoryId,
-          name: form.name,
-          description: form.description || null,
-          priceCents: form.priceCents,
-          itemClass: form.itemClass,
-          stockCount: form.stockCount,
-        });
         setSuccess(t("inventory.itemUpdated"));
       } else {
-        await api.post("/api/admin/inventory", {
-          id: form.id,
-          categoryId: form.categoryId,
-          name: form.name,
-          description: form.description || null,
-          priceCents: form.priceCents,
-          itemClass: form.itemClass,
-          stockCount: form.stockCount,
-        });
         setSuccess(t("inventory.itemCreated"));
       }
       setDialogOpen(false);
@@ -202,9 +196,7 @@ export function InventoryPage() {
     if (!confirm(t("inventory.deleteConfirm"))) return;
     clearMessages();
     try {
-      const result = await api.delete<{ deleted: boolean; softDeleted?: boolean }>(
-        `/api/admin/inventory/${itemId}`
-      );
+      const result = await deleteInventoryItem(itemId);
       if (result.softDeleted) {
         setSuccess(t("inventory.softDeleted"));
       } else {
@@ -218,18 +210,8 @@ export function InventoryPage() {
 
   async function handleImageUpload(itemId: string, file: File) {
     clearMessages();
-    const formData = new FormData();
-    formData.append("image", file);
     try {
-      const resp = await fetch(`/api/admin/inventory/${itemId}/image`, {
-        method: "POST",
-        headers: await getRequestHeaders({}, { includeJsonContentType: false }),
-        body: formData,
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({ error: resp.statusText }));
-        throw new Error(body.error || `Upload failed (HTTP ${resp.status})`);
-      }
+      await uploadInventoryImage(itemId, file);
       setSuccess(t("inventory.imageUploaded"));
       fetchItems();
     } catch (err: unknown) {
@@ -240,7 +222,7 @@ export function InventoryPage() {
   async function handleImageRemove(itemId: string) {
     clearMessages();
     try {
-      await api.delete(`/api/admin/inventory/${itemId}/image`);
+      await removeInventoryImage(itemId);
       setSuccess(t("inventory.imageRemoved"));
       fetchItems();
     } catch (err: unknown) {

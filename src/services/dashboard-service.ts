@@ -1,4 +1,5 @@
 import { getDb } from "../db/connection";
+import { getBusinessHourLabel, getCurrentBusinessDate, parseStoredTimestamp } from "./business-time-service";
 import { getPickupWindows } from "./capacity";
 
 export interface DashboardStats {
@@ -18,41 +19,41 @@ export interface DashboardStats {
 
 export function getDashboardStats(): DashboardStats {
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getCurrentBusinessDate();
 
   const ordersToday = (
     db.prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE date(created_at) = ?"
+      "SELECT COUNT(*) as n FROM orders WHERE business_date = ?"
     ).get(today) as { n: number }
   ).n;
 
   const completedToday = (
     db.prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE status = 'collected' AND date(created_at) = ?"
+      "SELECT COUNT(*) as n FROM orders WHERE status = 'collected' AND business_date = ?"
     ).get(today) as { n: number }
   ).n;
 
   const pendingOrders = (
     db.prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE status IN ('confirmed','preparing') AND date(created_at) = ?"
+      "SELECT COUNT(*) as n FROM orders WHERE status IN ('confirmed','preparing') AND business_date = ?"
     ).get(today) as { n: number }
   ).n;
 
   const readyForPickup = (
     db.prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE status = 'ready' AND date(created_at) = ?"
+      "SELECT COUNT(*) as n FROM orders WHERE status = 'ready' AND business_date = ?"
     ).get(today) as { n: number }
   ).n;
 
   const cancelledToday = (
     db.prepare(
-      "SELECT COUNT(*) as n FROM orders WHERE status = 'cancelled' AND date(created_at) = ?"
+      "SELECT COUNT(*) as n FROM orders WHERE status = 'cancelled' AND business_date = ?"
     ).get(today) as { n: number }
   ).n;
 
   const revenueToday = (
     db.prepare(
-      "SELECT COALESCE(SUM(total_cents),0) as s FROM orders WHERE status != 'cancelled' AND date(created_at) = ?"
+      "SELECT COALESCE(SUM(total_cents),0) as s FROM orders WHERE status != 'cancelled' AND business_date = ?"
     ).get(today) as { s: number }
   ).s;
 
@@ -66,7 +67,7 @@ export function getDashboardStats(): DashboardStats {
     db.prepare(
       `SELECT COALESCE(SUM(oi.quantity),0) as s
        FROM order_items oi JOIN orders o ON o.id = oi.order_id
-       WHERE o.status != 'cancelled' AND date(o.created_at) = ?`
+       WHERE o.status != 'cancelled' AND o.business_date = ?`
     ).get(today) as { s: number }
   ).s;
 
@@ -74,7 +75,7 @@ export function getDashboardStats(): DashboardStats {
     .prepare(
       `SELECT oi.item_name as name, SUM(oi.quantity) as sold
        FROM order_items oi JOIN orders o ON o.id = oi.order_id
-       WHERE o.status != 'cancelled' AND date(o.created_at) = ?
+       WHERE o.status != 'cancelled' AND o.business_date = ?
        GROUP BY oi.item_name ORDER BY sold DESC LIMIT 5`
     )
     .all(today) as { name: string; sold: number }[];
@@ -88,21 +89,11 @@ export function getDashboardStats(): DashboardStats {
     )
     .all() as { name: string; stock: number }[];
 
-  const windowStatsWithStatus = getPickupWindows()
+  const windowStatsWithStatus = getPickupWindows(today)
     .filter((w) => w.isActive)
     .map((w) => {
       const load = w.currentMadeToOrderCount ?? 0;
       const cap = w.madeToOrderCap;
-      const pct = cap > 0 ? load / cap : 0;
-
-      console.log("[Dashboard] Window status computed", {
-        label: w.label,
-        windowId: w.id,
-        activeMadeToOrderQuantity: load,
-        cap,
-        utilization: pct,
-        status: w.status,
-      });
 
       return {
         label: w.label,
@@ -112,13 +103,18 @@ export function getDashboardStats(): DashboardStats {
       };
     });
 
-  const hourlyOrders = db
-    .prepare(
-      `SELECT substr(created_at, 12, 2) as hour, COUNT(*) as count
-       FROM orders WHERE date(created_at) = ?
-       GROUP BY hour ORDER BY hour`
-    )
-    .all(today) as { hour: string; count: number }[];
+  const hourlyCounts = new Map<string, number>();
+  const hourlyRows = db
+    .prepare("SELECT created_at FROM orders WHERE business_date = ?")
+    .all(today) as { created_at: string }[];
+  for (const row of hourlyRows) {
+    const hour = getBusinessHourLabel(parseStoredTimestamp(row.created_at));
+    hourlyCounts.set(hour, (hourlyCounts.get(hour) ?? 0) + 1);
+  }
+
+  const hourlyOrders = [...hourlyCounts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([hour, count]) => ({ hour, count }));
 
   return {
     ordersToday,

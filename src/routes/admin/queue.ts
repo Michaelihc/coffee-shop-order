@@ -1,11 +1,10 @@
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import { getDb } from "../../db/connection";
+import type { Request, Response } from "express";
+import { requireStaff } from "../../middleware/authorization";
 import {
-  getAdminOrders,
-  getOrderCounts,
   updateOrderStatus,
 } from "../../services/order-service";
+import { getAdminOrders, getOrderCounts } from "../../services/order-repository";
 import type { Order, OrderStatus } from "../../types/models";
 import { getStudentOrderStatusNotification } from "../../services/notification-content-service";
 import { sendTeamsNotification } from "../../services/teams-notification-service";
@@ -29,33 +28,17 @@ function notifyStudentOrderUpdate(
   });
 }
 
-// Staff check middleware
-function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const db = getDb();
-  const staff = db
-    .prepare("SELECT * FROM staff WHERE aad_id = ?")
-    .get(req.user.userId);
-  if (!staff) {
-    res.status(403).json({ error: "Staff access required" });
-    return;
-  }
-  next();
-}
-
 router.use(requireStaff);
 
 // GET /api/admin/orders
 router.get("/", (req: Request, res: Response) => {
+  const targetDate = req.query.date as string | undefined;
   const orders = getAdminOrders({
     status: req.query.status as string | undefined,
     windowId: req.query.windowId as string | undefined,
-    date: req.query.date as string | undefined,
+    date: targetDate,
   });
-  const counts = getOrderCounts();
+  const counts = getOrderCounts(targetDate);
   res.json({ orders, counts });
 });
 

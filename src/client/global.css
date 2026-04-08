@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light;
+  --coffee-scrollbar-track: #efe5d8;
+  --coffee-scrollbar-thumb: #a98668;
+  --coffee-scrollbar-thumb-hover: #8f684a;
+  --coffee-scrollbar-border: rgba(59, 34, 24, 0.12);
+  --coffee-nav-background: #4a2b1f;
+  --coffee-nav-foreground: #fff6ee;
+  --coffee-nav-muted: rgba(255, 246, 238, 0.76);
+  --coffee-nav-accent: #ddb06c;
+  --coffee-nav-hover: rgba(255, 246, 238, 0.08);
+  --coffee-nav-selected-bg: rgba(221, 176, 108, 0.16);
+  --coffee-nav-selected-border: rgba(221, 176, 108, 0.34);
+  --coffee-nav-focus-ring: rgba(232, 196, 132, 0.72);
+}
+
+:root[data-app-theme="dark"] {
+  color-scheme: dark;
+  --coffee-scrollbar-track: #1f1813;
+  --coffee-scrollbar-thumb: #6f5a4d;
+  --coffee-scrollbar-thumb-hover: #c87a54;
+  --coffee-scrollbar-border: rgba(255, 249, 243, 0.08);
+  --coffee-nav-background: #2c1a13;
+  --coffee-nav-foreground: #fff6ee;
+  --coffee-nav-muted: rgba(255, 246, 238, 0.8);
+  --coffee-nav-accent: #e6bd7d;
+  --coffee-nav-hover: rgba(255, 246, 238, 0.1);
+  --coffee-nav-selected-bg: rgba(230, 189, 125, 0.18);
+  --coffee-nav-selected-border: rgba(230, 189, 125, 0.4);
+  --coffee-nav-focus-ring: rgba(230, 189, 125, 0.84);
+}
+
+:root[data-app-theme="contrast"] {
+  color-scheme: dark;
+  --coffee-scrollbar-track: #000000;
+  --coffee-scrollbar-thumb: #ffffff;
+  --coffee-scrollbar-thumb-hover: #ffff00;
+  --coffee-scrollbar-border: #ffffff;
+  --coffee-nav-background: #000000;
+  --coffee-nav-foreground: #ffffff;
+  --coffee-nav-muted: #ffffff;
+  --coffee-nav-accent: #ffff00;
+  --coffee-nav-hover: rgba(255, 255, 255, 0.12);
+  --coffee-nav-selected-bg: rgba(255, 255, 255, 0.16);
+  --coffee-nav-selected-border: #ffffff;
+  --coffee-nav-focus-ring: #ffff00;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body,
+#root,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--coffee-scrollbar-thumb) var(--coffee-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--coffee-scrollbar-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--coffee-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid var(--coffee-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--coffee-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--coffee-scrollbar-track);
+}
+
+body {
+  margin: 0;
+}

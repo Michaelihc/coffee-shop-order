@@ -1,0 +1,3 @@
+Capacity should be based on prep effort, not raw order count.
+A latte, bottled drink, and toastie should not consume the same capacity. The best simple optimization is a points model per pickup window. Example: bottled drink = 0, pastry = 0.5, americano = 1, latte = 1.5, toastie = 2. Each break window gets a max point total instead of a max order count.
+sort by incompletion

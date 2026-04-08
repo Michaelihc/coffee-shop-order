@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   Button,
   Dropdown,
@@ -24,6 +24,7 @@ import { api } from "../../api-client";
 import { OrderCard } from "../../components/OrderCard";
 import { usePoller } from "../../hooks/usePoller";
 import { useNotifications } from "../../hooks/useNotifications";
+import { seedOrNotify } from "../../notification-polling";
 import type { AdminOrdersResponse } from "../../../types/api";
 import type { CancelReason, Order, OrderStatus } from "../../../types/models";
 
@@ -171,6 +172,12 @@ export function QueuePage() {
   const [cancelNote, setCancelNote] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const prevOrdersRef = useRef<Order[]>([]);
+  const hasSeededNotificationsRef = useRef(false);
+
+  useEffect(() => {
+    prevOrdersRef.current = [];
+    hasSeededNotificationsRef.current = false;
+  }, [dateFilter]);
 
   const fetchOrders = useCallback(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -178,8 +185,16 @@ export function QueuePage() {
     api
       .get<AdminOrdersResponse>(`/api/admin/orders${params}`)
       .then((data) => {
-        checkStaffOrders(prevOrdersRef.current, data.orders);
-        prevOrdersRef.current = data.orders;
+        const nextState = seedOrNotify(
+          {
+            hasSeeded: hasSeededNotificationsRef.current,
+            previous: prevOrdersRef.current,
+          },
+          data.orders,
+          checkStaffOrders
+        );
+        hasSeededNotificationsRef.current = nextState.hasSeeded;
+        prevOrdersRef.current = nextState.previous;
         setAllOrders(data.orders);
         setCounts(data.counts);
       })

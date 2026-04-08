@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Spinner, makeStyles, tokens } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { OrderCard } from "../../components/OrderCard";
 import { usePoller } from "../../hooks/usePoller";
 import { useCart } from "../../hooks/useCart";
 import { useNotifications } from "../../hooks/useNotifications";
+import { seedOrNotify } from "../../notification-polling";
 import type { MyOrdersResponse } from "../../../types/api";
 import type { Order } from "../../../types/models";
 
@@ -47,14 +48,28 @@ export function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
   const prevOrdersRef = useRef<Order[]>([]);
+  const hasSeededNotificationsRef = useRef(false);
+
+  useEffect(() => {
+    prevOrdersRef.current = [];
+    hasSeededNotificationsRef.current = false;
+  }, [showHistory]);
 
   const fetchOrders = useCallback(() => {
     const params = showHistory ? "?history=true" : "";
     api
       .get<MyOrdersResponse>(`/api/orders/mine${params}`)
       .then((data) => {
-        checkStudentOrders(prevOrdersRef.current, data.orders);
-        prevOrdersRef.current = data.orders;
+        const nextState = seedOrNotify(
+          {
+            hasSeeded: hasSeededNotificationsRef.current,
+            previous: prevOrdersRef.current,
+          },
+          data.orders,
+          checkStudentOrders
+        );
+        hasSeededNotificationsRef.current = nextState.hasSeeded;
+        prevOrdersRef.current = nextState.previous;
         setOrders(data.orders);
       })
       .finally(() => setLoading(false));
@@ -122,7 +137,6 @@ export function OrdersPage() {
 
       {active.length > 0 && (
         <>
-          <h2 className={styles.heading}>{t("orders.activeOrders")}</h2>
           {active.map((order) => (
             <OrderCard
               key={order.id}

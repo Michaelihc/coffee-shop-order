@@ -1,25 +1,14 @@
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response } from "express";
 import { getDb } from "../../db/connection";
+import { requireStaff } from "../../middleware/authorization";
 import { getPickupWindows } from "../../services/capacity";
+import {
+  validateWindowCreatePayload,
+  validateWindowUpdatePayload,
+} from "../../validation/admin";
 
 const router = Router();
-
-function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const db = getDb();
-  const staff = db
-    .prepare("SELECT * FROM staff WHERE aad_id = ?")
-    .get(req.user.userId);
-  if (!staff) {
-    res.status(403).json({ error: "Staff access required" });
-    return;
-  }
-  next();
-}
 
 router.use(requireStaff);
 
@@ -32,18 +21,12 @@ router.get("/", (_req: Request, res: Response) => {
 // POST /api/admin/windows — create new window
 router.post("/", (req: Request, res: Response) => {
   const db = getDb();
-  const { id, label, startsAt, endsAt, madeToOrderCap } = req.body as {
-    id: string;
-    label: string;
-    startsAt: string;
-    endsAt: string;
-    madeToOrderCap: number;
-  };
-
-  if (!id || !label || !startsAt || !endsAt || madeToOrderCap == null) {
-    res.status(400).json({ error: "Missing required fields (id, label, startsAt, endsAt, madeToOrderCap)" });
+  const validation = validateWindowCreatePayload(req.body);
+  if (validation.ok === false) {
+    res.status(400).json({ error: validation.error });
     return;
   }
+  const { id, label, startsAt, endsAt, madeToOrderCap } = validation.value;
 
   const existing = db.prepare("SELECT id FROM pickup_windows WHERE id = ?").get(id);
   if (existing) {
@@ -68,13 +51,12 @@ router.post("/", (req: Request, res: Response) => {
 router.put("/:id", (req: Request, res: Response) => {
   const db = getDb();
   const windowId = req.params.id as string;
-  const { label, startsAt, endsAt, madeToOrderCap, isActive } = req.body as {
-    label?: string;
-    startsAt?: string;
-    endsAt?: string;
-    madeToOrderCap?: number;
-    isActive?: boolean;
-  };
+  const validation = validateWindowUpdatePayload(req.body);
+  if (validation.ok === false) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+  const { label, startsAt, endsAt, madeToOrderCap, isActive } = validation.value;
 
   const existing = db
     .prepare("SELECT * FROM pickup_windows WHERE id = ?")

@@ -1,15 +1,19 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  FluentProvider,
   Tab,
   TabList,
   Badge,
   Button,
   makeStyles,
+  mergeClasses,
   tokens,
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
 import { useCart } from "../hooks/useCart";
+import { coffeeDarkTheme, coffeeHighContrastTheme } from "../coffee-theme";
+import { useTeamsContext } from "../hooks/useTeamsContext";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { NotificationCenter } from "./NotificationCenter";
 import type { Role } from "../hooks/useRole";
@@ -21,24 +25,84 @@ const useStyles = makeStyles({
     justifyContent: "space-between",
     padding: "8px 16px",
     borderBottom: "none",
-    backgroundColor: "#3B2218",
-    color: "#FFF9F3",
+    backgroundColor: "var(--coffee-nav-background)",
+    color: "var(--coffee-nav-foreground)",
   },
   title: {
     fontWeight: tokens.fontWeightBold,
     fontSize: tokens.fontSizeBase500,
     marginRight: "16px",
-    color: "#DDAF6B",
+    color: "var(--coffee-nav-accent)",
     letterSpacing: "0.5px",
+  },
+  tabList: {
+    backgroundColor: "transparent",
   },
   rightGroup: {
     display: "flex",
     alignItems: "center",
     gap: "12px",
   },
+  dashboardButton: {
+    position: "relative",
+    color: "var(--coffee-nav-muted) !important",
+    borderRadius: "12px",
+    border: "1px solid transparent !important",
+    outlineStyle: "none",
+    boxShadow: "none !important",
+    WebkitTapHighlightColor: "transparent",
+    ":hover": {
+      color: "var(--coffee-nav-foreground) !important",
+      backgroundColor: "transparent !important",
+    },
+    ":active": {
+      backgroundColor: "transparent !important",
+      boxShadow: "none !important",
+    },
+    ":focus": {
+      outline: "none",
+      boxShadow: "none !important",
+    },
+    ":focus-visible": {
+      outline: "2px solid var(--coffee-nav-focus-ring)",
+      outlineOffset: "2px",
+      boxShadow: "0 0 0 1px var(--coffee-nav-background) !important",
+    },
+  },
+  selectedDashboardButton: {
+    color: "var(--coffee-nav-foreground) !important",
+    fontWeight: tokens.fontWeightBold,
+    backgroundColor: "transparent !important",
+    borderColor: "transparent !important",
+    boxShadow: "none !important",
+    "::before": {
+      content: '""',
+      position: "absolute",
+      left: "50%",
+      transform: "translateX(-50%)",
+      bottom: "4px",
+      width: "60px",
+      height: "3px",
+      borderRadius: "999px",
+      backgroundColor: "rgba(255, 246, 238, 0.42)",
+      pointerEvents: "none",
+    },
+    "::after": {
+      content: '""',
+      position: "absolute",
+      left: "50%",
+      transform: "translateX(-50%)",
+      bottom: "5px",
+      width: "38px",
+      height: "3px",
+      borderRadius: "999px",
+      backgroundColor: "var(--coffee-nav-accent)",
+      pointerEvents: "none",
+    },
+  },
   userName: {
     fontSize: "12px",
-    color: "rgba(255,249,243,0.7)",
+    color: "var(--coffee-nav-muted)",
   },
 });
 
@@ -75,9 +139,12 @@ export function NavBar({ role, displayName, userId, onToggleDashboard, dashboard
   const location = useLocation();
   const { itemCount } = useCart();
   const { t } = useTranslation();
+  const { context } = useTeamsContext();
 
   const isStaff = role === "staff" || role === "admin";
   const tabs = role === "admin" ? adminTabs : isStaff ? staffTabs : studentTabs;
+  const navTabTheme =
+    context?.app?.theme === "contrast" ? coffeeHighContrastTheme : coffeeDarkTheme;
 
   const selectedTab =
     tabs.find((t) => t.value === location.pathname)?.value ||
@@ -86,46 +153,42 @@ export function NavBar({ role, displayName, userId, onToggleDashboard, dashboard
   return (
     <nav className={styles.nav}>
       <span className={styles.title}>{t("nav.title")}</span>
-      <TabList
-        selectedValue={selectedTab}
-        onTabSelect={(_, data) => navigate(data.value as string)}
-        size="small"
-        style={{ color: "#FFF9F3" }}
-      >
-        {tabs.map((tab) => (
-          <Tab
-            key={tab.value}
-            value={tab.value}
-            style={{
-              color: selectedTab === tab.value ? "#DDAF6B" : "rgba(255,249,243,0.85)",
-            }}
-          >
-            {t(tab.labelKey)}
-            {tab.labelKey === "nav.cart" && itemCount > 0 && (
-              <>
-                {" "}
-                <Badge
-                  size="small"
-                  appearance="filled"
-                  style={{ backgroundColor: "#DDAF6B", color: "#3B2218" }}
-                >
-                  {itemCount}
-                </Badge>
-              </>
-            )}
-          </Tab>
-        ))}
-      </TabList>
+      <FluentProvider theme={navTabTheme} style={{ background: "transparent" }}>
+        <TabList
+          selectedValue={selectedTab}
+          onTabSelect={(_, data) => navigate(data.value as string)}
+          size="small"
+          className={styles.tabList}
+        >
+          {tabs.map((tab) => (
+            <Tab key={tab.value} value={tab.value}>
+              {t(tab.labelKey)}
+              {tab.labelKey === "nav.cart" && itemCount > 0 && (
+                <>
+                  {" "}
+                  <Badge
+                    size="small"
+                    appearance="filled"
+                    style={{ backgroundColor: "var(--coffee-nav-accent)", color: "#3B2218" }}
+                  >
+                    {itemCount}
+                  </Badge>
+                </>
+              )}
+            </Tab>
+          ))}
+        </TabList>
+      </FluentProvider>
       <div className={styles.rightGroup}>
         {isStaff && onToggleDashboard && (
           <Button
             appearance="subtle"
             size="small"
             onClick={onToggleDashboard}
-            style={{
-              color: dashboardOpen ? "#DDAF6B" : "rgba(255,249,243,0.85)",
-              fontWeight: dashboardOpen ? 700 : 400,
-            }}
+            className={mergeClasses(
+              styles.dashboardButton,
+              dashboardOpen ? styles.selectedDashboardButton : undefined
+            )}
           >
             {t("nav.dashboard")}
           </Button>

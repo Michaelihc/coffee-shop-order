@@ -1,10 +1,7 @@
 import { getDb } from "../db/connection";
+import { getCurrentBusinessDate } from "./business-time-service";
 import { getSettingInt } from "./settings-service";
 import type { PickupWindow, WindowStatus } from "../types/models";
-
-function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface WindowRow {
   id: string;
@@ -16,16 +13,15 @@ interface WindowRow {
   sort_order: number;
 }
 
-export function getPickupWindows(): PickupWindow[] {
+export function getPickupWindows(targetDate = getCurrentBusinessDate()): PickupWindow[] {
   const db = getDb();
-  const today = getToday();
 
   const windows = db
     .prepare("SELECT * FROM pickup_windows ORDER BY sort_order")
     .all() as WindowRow[];
 
   return windows.map((w) => {
-    const mtoCount = getMadeToOrderCount(w.id, today);
+    const mtoCount = getMadeToOrderCount(w.id, targetDate);
     return {
       id: w.id,
       label: w.label,
@@ -40,7 +36,7 @@ export function getPickupWindows(): PickupWindow[] {
   });
 }
 
-export function getMadeToOrderCount(windowId: string, today: string): number {
+export function getMadeToOrderCount(windowId: string, businessDate: string): number {
   const db = getDb();
   const row = db
     .prepare(
@@ -49,16 +45,10 @@ export function getMadeToOrderCount(windowId: string, today: string): number {
        JOIN order_items oi ON oi.order_id = o.id
        WHERE o.pickup_window_id = ?
          AND o.status IN ('confirmed', 'preparing', 'ready')
-         AND date(o.created_at) = ?
+         AND o.business_date = ?
          AND oi.item_class = 'made-to-order'`
     )
-    .get(windowId, today) as { total: number };
-
-  console.log("[Capacity] Window load computed", {
-    windowId,
-    date: today,
-    activeMadeToOrderQuantity: row.total,
-  });
+    .get(windowId, businessDate) as { total: number };
 
   return row.total;
 }
@@ -79,10 +69,10 @@ export function computeWindowStatus(
 
 export function isWindowAcceptingOrders(
   windowId: string,
-  hasMadeToOrder: boolean
+  hasMadeToOrder: boolean,
+  businessDate = getCurrentBusinessDate()
 ): { ok: boolean; reason?: string } {
   const db = getDb();
-  const today = getToday();
   const w = db
     .prepare("SELECT * FROM pickup_windows WHERE id = ?")
     .get(windowId) as WindowRow | undefined;
@@ -91,14 +81,7 @@ export function isWindowAcceptingOrders(
   if (w.is_active !== 1) return { ok: false, reason: "Pickup window is closed" };
 
   if (hasMadeToOrder) {
-    const count = getMadeToOrderCount(windowId, today);
-    console.log("[Capacity] Capacity check", {
-      windowId,
-      date: today,
-      hasMadeToOrder,
-      activeMadeToOrderQuantity: count,
-      cap: w.made_to_order_cap,
-    });
+    const count = getMadeToOrderCount(windowId, businessDate);
     if (count >= w.made_to_order_cap) {
       // Check if cap enforcement is enabled
       const enforceCap = getSettingInt("enforce_window_cap", 1);

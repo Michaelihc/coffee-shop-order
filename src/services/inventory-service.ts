@@ -29,17 +29,22 @@ export function checkAndReserveStock(
   items: { menuItemId: string; quantity: number }[]
 ): { ok: boolean; failedItem?: string } {
   const db = getDb();
+  const totalsByItem = new Map<string, number>();
 
   for (const item of items) {
+    totalsByItem.set(item.menuItemId, (totalsByItem.get(item.menuItemId) ?? 0) + item.quantity);
+  }
+
+  for (const [menuItemId, quantity] of totalsByItem.entries()) {
     const row = db
       .prepare("SELECT * FROM menu_items WHERE id = ?")
-      .get(item.menuItemId) as ItemRow | undefined;
+      .get(menuItemId) as ItemRow | undefined;
 
-    if (!row) return { ok: false, failedItem: item.menuItemId };
+    if (!row) return { ok: false, failedItem: menuItemId };
     if (row.is_available !== 1) return { ok: false, failedItem: row.name };
 
     if (row.item_class === "premade" && row.stock_count !== null) {
-      if (row.stock_count < item.quantity) {
+      if (row.stock_count < quantity) {
         return { ok: false, failedItem: row.name };
       }
     }
@@ -49,8 +54,8 @@ export function checkAndReserveStock(
   const decrement = db.prepare(
     "UPDATE menu_items SET stock_count = stock_count - ? WHERE id = ? AND item_class = 'premade' AND stock_count IS NOT NULL"
   );
-  for (const item of items) {
-    decrement.run(item.quantity, item.menuItemId);
+  for (const [menuItemId, quantity] of totalsByItem.entries()) {
+    decrement.run(quantity, menuItemId);
   }
 
   return { ok: true };

@@ -1,15 +1,16 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { requireAuthenticated } from "../middleware/authorization";
 import {
   createOrder,
-  getStudentOrders,
-  getOrderById,
   updateOrderStatus,
 } from "../services/order-service";
+import { getStudentOrders, getOrderById } from "../services/order-repository";
 import { getStudentOrderCreatedNotification } from "../services/notification-content-service";
 import { sendTeamsNotification } from "../services/teams-notification-service";
 
 const router = Router();
+router.use(requireAuthenticated);
 
 function notifyStudentOrderUpdate(
   userId: string,
@@ -23,11 +24,6 @@ function notifyStudentOrderUpdate(
 
 // POST /api/orders — place a new order
 router.post("/", async (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
   try {
     const result = await createOrder(req.user.userId, req.user.userName, req.body);
     if (!result.ok) {
@@ -49,11 +45,6 @@ router.post("/", async (req: Request, res: Response) => {
 
 // GET /api/orders/mine — today's orders (or all with ?history=true)
 router.get("/mine", (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
   const allTime = req.query.history === "true";
   const orders = getStudentOrders(req.user.userId, { allTime });
   res.json({ orders });
@@ -61,11 +52,6 @@ router.get("/mine", (req: Request, res: Response) => {
 
 // GET /api/orders/mine/:orderId — single order detail
 router.get("/mine/:orderId", (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
   const order = getOrderById(req.params.orderId as string);
   if (!order || order.studentAadId !== req.user.userId) {
     res.status(404).json({ error: "Order not found" });
@@ -77,11 +63,6 @@ router.get("/mine/:orderId", (req: Request, res: Response) => {
 
 // POST /api/orders/mine/:orderId/collect — student confirms pickup
 router.post("/mine/:orderId/collect", (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
   const order = getOrderById(req.params.orderId as string);
   if (!order || order.studentAadId !== req.user.userId) {
     res.status(404).json({ error: "Order not found" });

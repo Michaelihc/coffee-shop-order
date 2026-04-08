@@ -1,24 +1,9 @@
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response } from "express";
 import { getDb } from "../../db/connection";
+import { requireAdmin } from "../../middleware/authorization";
 
 const router = Router();
-
-function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const db = getDb();
-  const staff = db
-    .prepare("SELECT * FROM staff WHERE aad_id = ?")
-    .get(req.user.userId) as { role: string } | undefined;
-  if (!staff || staff.role !== "admin") {
-    res.status(403).json({ error: "Admin access required" });
-    return;
-  }
-  next();
-}
 
 router.use(requireAdmin);
 
