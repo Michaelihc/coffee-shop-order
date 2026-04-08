@@ -1,4 +1,4 @@
-import type { CancelReason, Order, OrderStatus } from "../types/models";
+import type { CancelReason, Order } from "../types/models";
 import { getUserLocale, type SupportedLocale } from "./user-locale-service";
 
 const studentNotificationCopy: Record<
@@ -58,6 +58,27 @@ const studentNotificationCopy: Record<
   },
 };
 
+const staffNotificationCopy: Record<
+  SupportedLocale,
+  {
+    newOrderTitle: string;
+    newOrderBody: string;
+  }
+> = {
+  en: {
+    newOrderTitle: "New Order Received",
+    newOrderBody: "Order #{{id}} from {{studentName}} is waiting in the queue",
+  },
+  zh: {
+    newOrderTitle: "收到新订单",
+    newOrderBody: "{{studentName}} 的订单 #{{id}} 已进入队列",
+  },
+  ko: {
+    newOrderTitle: "새 주문 접수",
+    newOrderBody: "{{studentName}}님의 주문 #{{id}}이(가) 대기 중입니다",
+  },
+};
+
 function interpolate(template: string, values: Record<string, string>) {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => values[key] ?? "");
 }
@@ -97,6 +118,18 @@ export function getStudentOrderStatusNotification(
     default:
       return null;
   }
+}
+
+export function getStaffNewOrderNotification(userId: string, order: Order) {
+  const copy = staffNotificationCopy[getUserLocale(userId)];
+
+  return {
+    title: copy.newOrderTitle,
+    body: interpolate(copy.newOrderBody, {
+      id: order.id,
+      studentName: order.studentName,
+    }),
+  };
 }
 
 function getLocalizedCancelReason(

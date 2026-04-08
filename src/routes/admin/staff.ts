@@ -3,6 +3,8 @@ import type { Request, Response } from "express";
 import { requireAdmin } from "../../middleware/authorization";
 import {
   addStaffMember,
+  countStaffMembersByRole,
+  getManagedStaffMember,
   listStaffMembers,
   removeStaffMember,
   staffMemberExists,
@@ -49,6 +51,26 @@ router.patch("/:aadId", (req: Request, res: Response) => {
     return;
   }
 
+  const existingStaffMember = getManagedStaffMember(aadId);
+  if (!existingStaffMember) {
+    res.status(404).json({ error: "Staff member not found" });
+    return;
+  }
+
+  if (req.user?.userId === aadId && role !== "admin") {
+    res.status(400).json({ error: "Cannot remove your own admin role" });
+    return;
+  }
+
+  if (
+    existingStaffMember.role === "admin" &&
+    role !== "admin" &&
+    countStaffMembersByRole("admin") <= 1
+  ) {
+    res.status(400).json({ error: "At least one admin must remain assigned" });
+    return;
+  }
+
   if (!updateStaffMemberRole(aadId, role)) {
     res.status(404).json({ error: "Staff member not found" });
     return;
@@ -59,10 +81,23 @@ router.patch("/:aadId", (req: Request, res: Response) => {
 // DELETE /api/admin/staff/:aadId — remove staff member
 router.delete("/:aadId", (req: Request, res: Response) => {
   const aadId = req.params.aadId as string;
+  const existingStaffMember = getManagedStaffMember(aadId);
 
-  // Prevent removing yourself
   if (req.user && req.user.userId === aadId) {
     res.status(400).json({ error: "Cannot remove yourself" });
+    return;
+  }
+
+  if (!existingStaffMember) {
+    res.status(404).json({ error: "Staff member not found" });
+    return;
+  }
+
+  if (
+    existingStaffMember.role === "admin" &&
+    countStaffMembersByRole("admin") <= 1
+  ) {
+    res.status(400).json({ error: "At least one admin must remain assigned" });
     return;
   }
 

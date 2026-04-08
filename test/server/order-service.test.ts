@@ -37,9 +37,13 @@ describe("order-service stability", () => {
       const stored = getTestDb()
         .prepare("SELECT business_date, payment_ref FROM orders WHERE id = ?")
         .get(result.order.id) as { business_date: string; payment_ref: string };
+      const incidentCount = getTestDb()
+        .prepare("SELECT COUNT(*) as n FROM payment_reconciliation_incidents")
+        .get() as { n: number };
 
       expect(stored.business_date).toBe("2026-04-04");
       expect(stored.payment_ref).toMatch(/^STUB-student-card-/);
+      expect(incidentCount.n).toBe(0);
     }
   });
 
@@ -263,7 +267,7 @@ describe("order-service stability", () => {
           return originalTransaction(fn);
         }
 
-        return ((...args: unknown[]) => {
+        return ((..._args: unknown[]) => {
           throw new Error("synthetic persist failure");
         }) as ReturnType<typeof originalTransaction>;
       }) as typeof db.transaction);

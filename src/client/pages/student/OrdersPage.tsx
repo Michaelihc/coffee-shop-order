@@ -94,7 +94,7 @@ export function OrdersPage() {
           name: item.itemName,
           priceCents: item.priceCents,
           itemClass: item.itemClass,
-        });
+        }, item.quantity);
       }
     }
     navigate("/cart");

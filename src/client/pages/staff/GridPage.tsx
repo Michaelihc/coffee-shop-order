@@ -58,7 +58,7 @@ const useStyles = makeStyles({
   slot: {
     padding: "12px",
     borderRadius: "10px",
-    border: "2px solid",
+    border: "2px solid transparent",
     textAlign: "center" as const,
     display: "flex",
     flexDirection: "column",
@@ -66,11 +66,11 @@ const useStyles = makeStyles({
     minHeight: "80px",
   },
   empty: {
-    borderColor: tokens.colorPaletteGreenBorder1,
+    border: `2px solid ${tokens.colorPaletteGreenBorder1}`,
     backgroundColor: tokens.colorPaletteGreenBackground1,
   },
   occupied: {
-    borderColor: tokens.colorPaletteYellowBorder1,
+    border: `2px solid ${tokens.colorPaletteYellowBorder1}`,
     backgroundColor: tokens.colorPaletteYellowBackground1,
   },
   slotLabel: {

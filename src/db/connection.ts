@@ -87,6 +87,12 @@ function bindStatement(stmt: RawStatement, params: unknown[]): void {
   stmt.bind(boundValue);
 }
 
+function runPreparedStatement(raw: SqlJsDatabase, sql: string, params: StatementParams): void {
+  // sql.js supports named-object bindings at runtime, but its type definitions
+  // only model positional arrays for Database#run.
+  raw.run(sql, params as never);
+}
+
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
   return (
     value !== null &&
@@ -141,12 +147,12 @@ function createWrapper(raw: SqlJsDatabase): CompatDatabase {
           const candidate = params.length === 1 ? params[0] : params;
           const boundValue: StatementParams = (
             candidate !== null &&
-            typeof candidate === "object" &&
-            !Array.isArray(candidate)
-          )
-            ? (candidate as Record<string, unknown>)
-            : params;
-          raw.run(sql, boundValue);
+          typeof candidate === "object" &&
+          !Array.isArray(candidate)
+        )
+          ? (candidate as Record<string, unknown>)
+          : params;
+          runPreparedStatement(raw, sql, boundValue);
           const changes = raw.getRowsModified();
           // sql.js doesn't expose last_insert_rowid directly through run,
           // so we query it separately

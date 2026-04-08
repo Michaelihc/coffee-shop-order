@@ -6,8 +6,13 @@ import {
   updateOrderStatus,
 } from "../services/order-service";
 import { getStudentOrders, getOrderById } from "../services/order-repository";
-import { getStudentOrderCreatedNotification } from "../services/notification-content-service";
+import {
+  getStaffNewOrderNotification,
+  getStudentOrderCreatedNotification,
+} from "../services/notification-content-service";
+import { listStaffMembers } from "../services/admin-staff-service";
 import { sendTeamsNotification } from "../services/teams-notification-service";
+import type { Order } from "../types/models";
 
 const router = Router();
 router.use(requireAuthenticated);
@@ -22,10 +27,30 @@ function notifyStudentOrderUpdate(
   });
 }
 
+function notifyStaffOrderCreated(order: Order) {
+  for (const staffMember of listStaffMembers()) {
+    const notification = getStaffNewOrderNotification(staffMember.aadId, order);
+
+    void sendTeamsNotification({
+      userId: staffMember.aadId,
+      title: notification.title,
+      body: notification.body,
+    }).catch((error) => {
+      console.error("[Orders] Failed to send staff Teams notification:", error);
+    });
+  }
+}
+
 // POST /api/orders — place a new order
 router.post("/", async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   try {
-    const result = await createOrder(req.user.userId, req.user.userName, req.body);
+    const result = await createOrder(user.userId, user.userName, req.body);
     if (!result.ok) {
       res.status(400).json({ error: (result as { ok: false; error: string }).error });
       return;
@@ -37,6 +62,7 @@ router.post("/", async (req: Request, res: Response) => {
       result.order.id,
     );
     notifyStudentOrderUpdate(result.order.studentAadId, notification.title, notification.body);
+    notifyStaffOrderCreated(result.order);
   } catch (error) {
     console.error("[Orders] Failed to create order:", error);
     res.status(500).json({ error: "Failed to create order" });
@@ -45,15 +71,27 @@ router.post("/", async (req: Request, res: Response) => {
 
 // GET /api/orders/mine — today's orders (or all with ?history=true)
 router.get("/mine", (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const allTime = req.query.history === "true";
-  const orders = getStudentOrders(req.user.userId, { allTime });
+  const orders = getStudentOrders(user.userId, { allTime });
   res.json({ orders });
 });
 
 // GET /api/orders/mine/:orderId — single order detail
 router.get("/mine/:orderId", (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const order = getOrderById(req.params.orderId as string);
-  if (!order || order.studentAadId !== req.user.userId) {
+  if (!order || order.studentAadId !== user.userId) {
     res.status(404).json({ error: "Order not found" });
     return;
   }
@@ -63,8 +101,14 @@ router.get("/mine/:orderId", (req: Request, res: Response) => {
 
 // POST /api/orders/mine/:orderId/collect — student confirms pickup
 router.post("/mine/:orderId/collect", async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const order = getOrderById(req.params.orderId as string);
-  if (!order || order.studentAadId !== req.user.userId) {
+  if (!order || order.studentAadId !== user.userId) {
     res.status(404).json({ error: "Order not found" });
     return;
   }

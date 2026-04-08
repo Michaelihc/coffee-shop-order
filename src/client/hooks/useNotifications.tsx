@@ -9,7 +9,7 @@ import React, {
 import { app } from "@microsoft/teams-js";
 import i18n from "../i18n";
 import { getRequestHeaders } from "../api-client";
-import type { Order, OrderStatus } from "../../types/models";
+import type { Order } from "../../types/models";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -67,11 +67,30 @@ const DEFAULT_PREFS: NotificationPrefs = {
   },
 };
 
+function mergePrefs(rawPrefs: unknown): NotificationPrefs {
+  if (!rawPrefs || typeof rawPrefs !== "object") {
+    return DEFAULT_PREFS;
+  }
+
+  const candidate = rawPrefs as Partial<NotificationPrefs>;
+  const candidateTypes =
+    candidate.types && typeof candidate.types === "object" ? candidate.types : {};
+
+  return {
+    ...DEFAULT_PREFS,
+    ...candidate,
+    types: {
+      ...DEFAULT_PREFS.types,
+      ...candidateTypes,
+    },
+  };
+}
+
 function loadPrefs(): NotificationPrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
-    return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
+    return mergePrefs(JSON.parse(raw));
   } catch {
     return DEFAULT_PREFS;
   }
@@ -183,7 +202,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const updatePrefs = useCallback((partial: Partial<NotificationPrefs>) => {
     setPrefsState((prev) => {
-      const next = { ...prev, ...partial };
+      const next = mergePrefs({
+        ...prev,
+        ...partial,
+      });
       savePrefs(next);
       return next;
     });
@@ -231,8 +253,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Translate and send Teams notification
       const title = i18n.t(titleKey);
       const body = i18n.t(bodyKey, bodyParams);
-      if (options?.sendToTeams !== false) {
-        sendTeamsNotification(title, body);
+      if (options?.sendToTeams === true) {
+        void sendTeamsNotification(title, body);
       }
 
       // Browser notification
@@ -333,6 +355,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             "notifications.newOrder",
             "notifications.newOrderBody",
             { id: order.id },
+            { sendToTeams: false },
           );
         }
         // Order became ready (staff may need to place in grid)
@@ -343,6 +366,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             "notifications.orderReady",
             "notifications.orderReadyBody",
             { id: order.id },
+            { sendToTeams: false },
           );
         }
       }
@@ -368,6 +392,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             "notifications.lowStock",
             "notifications.lowStockBody",
             { name: item.name, count: item.stock },
+            { sendToTeams: false },
           );
         }
       }
@@ -388,6 +413,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             "notifications.nearCapacity",
             "notifications.nearCapacityBody",
             { label: w.label },
+            { sendToTeams: false },
           );
         }
         if (w.status === "over-capacity" && oldStatus !== "over-capacity") {
@@ -396,6 +422,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             "notifications.overCapacity",
             "notifications.overCapacityBody",
             { label: w.label },
+            { sendToTeams: false },
           );
         }
       }

@@ -73,7 +73,7 @@ const useStyles = makeStyles({
     color: "var(--coffee-nav-foreground) !important",
     fontWeight: tokens.fontWeightBold,
     backgroundColor: "transparent !important",
-    borderColor: "transparent !important",
+    border: "1px solid transparent !important",
     boxShadow: "none !important",
     "::before": {
       content: '""',

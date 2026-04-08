@@ -2,7 +2,7 @@ import React from "react";
 import { makeStyles, tokens, mergeClasses } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
 import { StatusBadge } from "./StatusBadge";
-import type { CancelReason, Order, OrderStatus } from "../../../types/models";
+import type { CancelReason, Order, OrderStatus } from "../../types/models";
 
 const pulseKeyframes = {
   "0%": { boxShadow: "0 0 0 0 rgba(221,175,107,0.4)" },
@@ -51,13 +51,13 @@ const useStyles = makeStyles({
   activeStep: {
     backgroundColor: tokens.colorBrandBackground,
     color: tokens.colorNeutralForegroundOnBrand,
-    borderColor: tokens.colorBrandBackground,
+    border: `1px solid ${tokens.colorBrandBackground}`,
     boxShadow: tokens.shadow2,
   },
   completedStep: {
     backgroundColor: tokens.colorBrandBackground2,
     color: tokens.colorBrandForeground1,
-    borderColor: tokens.colorBrandStroke2,
+    border: `1px solid ${tokens.colorBrandStroke2}`,
   },
   arrow: {
     color: tokens.colorNeutralForeground3,

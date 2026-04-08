@@ -9,10 +9,8 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "outDir": "../lib/client",
-    "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {}
+    "outDir": "../../lib/client",
+    "rootDir": ".."
   },
   "include": ["./**/*.ts", "./**/*.tsx", "../types/**/*.ts"]
 }

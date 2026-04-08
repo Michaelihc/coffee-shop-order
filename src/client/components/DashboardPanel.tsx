@@ -212,127 +212,127 @@ export function DashboardPanel({ open, onClose }: DashboardPanelProps) {
 
       <div className={styles.body}>
         {!stats ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "32px",
-                color: tokens.colorNeutralForeground3,
-              }}
-            >
-              {t("common.loading")}
-            </div>
-          ) : (
-            <>
-              <div className={styles.statGrid}>
-                <div className={styles.statCard}>
-                  <span className={styles.statValue}>{stats.ordersToday}</span>
-                  <span className={styles.statLabel}>{t("dashboard.ordersToday")}</span>
-                </div>
-                <div className={styles.statCard}>
-                  <span className={styles.statValue}>{formatYen(stats.revenueToday)}</span>
-                  <span className={styles.statLabel}>{t("dashboard.revenue")}</span>
-                </div>
-                <div className={styles.statCard}>
-                  <span
-                    className={styles.statValue}
-                    style={{ color: tokens.colorPaletteDarkOrangeForeground2 }}
-                  >
-                    {stats.pendingOrders}
-                  </span>
-                  <span className={styles.statLabel}>{t("dashboard.pending")}</span>
-                </div>
-                <div className={styles.statCard}>
-                  <span
-                    className={styles.statValue}
-                    style={{ color: tokens.colorPaletteGreenForeground2 }}
-                  >
-                    {stats.readyForPickup}
-                  </span>
-                  <span className={styles.statLabel}>{t("dashboard.ready")}</span>
-                </div>
-                <div className={styles.statCard}>
-                  <span className={styles.statValue}>{stats.completedToday}</span>
-                  <span className={styles.statLabel}>{t("dashboard.completed")}</span>
-                </div>
-                <div className={styles.statCard}>
-                  <span className={styles.statValue}>{formatYen(stats.avgOrderValue)}</span>
-                  <span className={styles.statLabel}>{t("dashboard.avgOrder")}</span>
-                </div>
+          <div
+            style={{
+              textAlign: "center",
+              padding: "32px",
+              color: tokens.colorNeutralForeground3,
+            }}
+          >
+            {t("common.loading")}
+          </div>
+        ) : (
+          <>
+            <div className={styles.statGrid}>
+              <div className={styles.statCard}>
+                <span className={styles.statValue}>{stats.ordersToday}</span>
+                <span className={styles.statLabel}>{t("dashboard.ordersToday")}</span>
               </div>
+              <div className={styles.statCard}>
+                <span className={styles.statValue}>{formatYen(stats.revenueToday)}</span>
+                <span className={styles.statLabel}>{t("dashboard.revenue")}</span>
+              </div>
+              <div className={styles.statCard}>
+                <span
+                  className={styles.statValue}
+                  style={{ color: tokens.colorPaletteDarkOrangeForeground2 }}
+                >
+                  {stats.pendingOrders}
+                </span>
+                <span className={styles.statLabel}>{t("dashboard.pending")}</span>
+              </div>
+              <div className={styles.statCard}>
+                <span
+                  className={styles.statValue}
+                  style={{ color: tokens.colorPaletteGreenForeground2 }}
+                >
+                  {stats.readyForPickup}
+                </span>
+                <span className={styles.statLabel}>{t("dashboard.ready")}</span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statValue}>{stats.completedToday}</span>
+                <span className={styles.statLabel}>{t("dashboard.completed")}</span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statValue}>{formatYen(stats.avgOrderValue)}</span>
+                <span className={styles.statLabel}>{t("dashboard.avgOrder")}</span>
+              </div>
+            </div>
 
-              {stats.topItems.length > 0 && (
-                <div className={styles.section}>
-                  <div className={styles.sectionTitle}>{t("dashboard.topItems")}</div>
-                  {stats.topItems.map((item) => (
-                    <div key={item.name}>
-                      <div className={styles.topItem}>
-                        <span>{item.name}</span>
-                        <span>{t("dashboard.sold", { count: item.sold })}</span>
-                      </div>
+            {stats.topItems.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>{t("dashboard.topItems")}</div>
+                {stats.topItems.map((item) => (
+                  <div key={item.name}>
+                    <div className={styles.topItem}>
+                      <span>{item.name}</span>
+                      <span>{t("dashboard.sold", { count: item.sold })}</span>
+                    </div>
+                    <div
+                      className={styles.topItemBar}
+                      style={{ width: `${(item.sold / maxSold) * 100}%` }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {stats.lowStockItems.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>{t("dashboard.lowStockAlerts")}</div>
+                {stats.lowStockItems.map((item) => (
+                  <div key={item.name} className={styles.lowStock}>
+                    <span>{item.name}</span>
+                    <span>{t("dashboard.left", { count: item.stock })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {stats.windowStats.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>{t("dashboard.windowLoad")}</div>
+                {stats.windowStats.map((w) => (
+                  <div key={w.label} className={styles.windowRow}>
+                    <span style={{ minWidth: "60px" }}>{w.label}</span>
+                    <div className={styles.windowBar}>
                       <div
-                        className={styles.topItemBar}
-                        style={{ width: `${(item.sold / maxSold) * 100}%` }}
+                        className={styles.windowFill}
+                        style={{
+                          width: `${Math.min((w.load / (w.cap || 1)) * 100, 100)}%`,
+                          backgroundColor: windowColor(w.status),
+                        }}
                       />
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {stats.lowStockItems.length > 0 && (
-                <div className={styles.section}>
-                  <div className={styles.sectionTitle}>{t("dashboard.lowStockAlerts")}</div>
-                  {stats.lowStockItems.map((item) => (
-                    <div key={item.name} className={styles.lowStock}>
-                      <span>{item.name}</span>
-                      <span>{t("dashboard.left", { count: item.stock })}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {stats.windowStats.length > 0 && (
-                <div className={styles.section}>
-                  <div className={styles.sectionTitle}>{t("dashboard.windowLoad")}</div>
-                  {stats.windowStats.map((w) => (
-                    <div key={w.label} className={styles.windowRow}>
-                      <span style={{ minWidth: "60px" }}>{w.label}</span>
-                      <div className={styles.windowBar}>
-                        <div
-                          className={styles.windowFill}
-                          style={{
-                            width: `${Math.min((w.load / (w.cap || 1)) * 100, 100)}%`,
-                            backgroundColor: windowColor(w.status),
-                          }}
-                        />
-                      </div>
-                      <span style={{ minWidth: "40px", textAlign: "right" }}>
-                        {w.load}/{w.cap}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {stats.hourlyOrders.length > 0 && (
-                <div className={styles.section}>
-                  <div className={styles.sectionTitle}>{t("dashboard.hourlyActivity")}</div>
-                  <div className={styles.hourlyChart}>
-                    {stats.hourlyOrders.map((h) => (
-                      <div key={h.hour} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                        <div
-                          className={styles.hourBar}
-                          style={{ height: `${(h.count / maxHourly) * 100}%` }}
-                          title={t("dashboard.hourlyTooltip", { hour: h.hour, count: h.count })}
-                        />
-                        <span className={styles.hourLabel}>{h.hour}</span>
-                      </div>
-                    ))}
+                    <span style={{ minWidth: "40px", textAlign: "right" }}>
+                      {w.load}/{w.cap}
+                    </span>
                   </div>
+                ))}
+              </div>
+            )}
+
+            {stats.hourlyOrders.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionTitle}>{t("dashboard.hourlyActivity")}</div>
+                <div className={styles.hourlyChart}>
+                  {stats.hourlyOrders.map((h) => (
+                    <div key={h.hour} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div
+                        className={styles.hourBar}
+                        style={{ height: `${(h.count / maxHourly) * 100}%` }}
+                        title={t("dashboard.hourlyTooltip", { hour: h.hour, count: h.count })}
+                      />
+                      <span className={styles.hourLabel}>{h.hour}</span>
+                    </div>
+                  ))}
                 </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
+    </div>
   );
 }

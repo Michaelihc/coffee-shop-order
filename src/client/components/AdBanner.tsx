@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { makeStyles, tokens } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
 import { getLocalizedMenuItemName } from "../menu-localization";
-import type { MenuItem } from "../../../types/models";
+import type { MenuItem } from "../../types/models";
 
 const useStyles = makeStyles({
   wrapper: {

@@ -1,7 +1,7 @@
 import React from "react";
 import { Badge, makeStyles, tokens } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
-import type { OrderStatus } from "../../../types/models";
+import type { OrderStatus } from "../../types/models";
 
 const useStyles = makeStyles({
   badge: {

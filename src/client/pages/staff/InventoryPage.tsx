@@ -377,9 +377,18 @@ export function InventoryPage() {
                         e.target.value = "";
                       }}
                     />
-                    <Button as="span" appearance="subtle" size="small">
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        color: tokens.colorNeutralForeground1,
+                      }}
+                    >
                       {item.imageUrl ? t("inventory.changeImg") : t("inventory.addImg")}
-                    </Button>
+                    </span>
                   </label>
                   {item.imageUrl && (
                     <Button appearance="subtle" size="small" onClick={() => handleImageRemove(item.id)}>

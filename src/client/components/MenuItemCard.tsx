@@ -9,7 +9,7 @@ import {
   getLocalizedMenuItemDescription,
   getLocalizedMenuItemName,
 } from "../menu-localization";
-import type { MenuItem } from "../../../types/models";
+import type { MenuItem } from "../../types/models";
 
 const useStyles = makeStyles({
   card: {
@@ -140,6 +140,9 @@ export function MenuItemCard({ item, quantity, onAdd, onUpdateQuantity }: MenuIt
   const localizedName = getLocalizedMenuItemName(t, item);
   const localizedDescription = getLocalizedMenuItemDescription(t, item);
   const isSoldOut = item.availabilityLabel === "sold-out";
+  const availability = item.availabilityLabel
+    ? AVAILABILITY_KEYS[item.availabilityLabel]
+    : undefined;
   const atStockLimit =
     item.itemClass === "premade" &&
     item.stockCount !== null &&
@@ -161,9 +164,9 @@ export function MenuItemCard({ item, quantity, onAdd, onUpdateQuantity }: MenuIt
       )}
       <div className={styles.footer}>
         <div>
-          {AVAILABILITY_KEYS[item.availabilityLabel] && (
-            <Badge appearance="filled" color={AVAILABILITY_KEYS[item.availabilityLabel].color}>
-              {t(AVAILABILITY_KEYS[item.availabilityLabel].key)}
+          {availability && (
+            <Badge appearance="filled" color={availability.color}>
+              {t(availability.key)}
             </Badge>
           )}
           {item.itemClass === "premade" &&

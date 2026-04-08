@@ -106,7 +106,7 @@ export function RolesPage() {
       .then((data) => setStaff(data.staff))
       .catch(() => setError(t("roles.failedToLoad")))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadStaff();

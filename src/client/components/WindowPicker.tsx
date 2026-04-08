@@ -7,7 +7,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
-import type { PickupWindow } from "../../../types/models";
+import type { PickupWindow } from "../../types/models";
 
 const useStyles = makeStyles({
   container: {
@@ -58,6 +58,7 @@ export function WindowPicker({ windows, selected, onSelect }: WindowPickerProps)
       >
         {windows.map((w) => {
           const disabled = w.status === "closed";
+          const status = w.status ? STATUS_KEYS[w.status] : undefined;
           return (
             <Radio
               key={w.id}
@@ -69,9 +70,9 @@ export function WindowPicker({ windows, selected, onSelect }: WindowPickerProps)
                   <span className={styles.time}>
                     {w.startsAt} – {w.endsAt}
                   </span>
-                  {STATUS_KEYS[w.status] && (
-                    <Badge appearance="filled" color={STATUS_KEYS[w.status].color} size="small">
-                      {t(STATUS_KEYS[w.status].key)}
+                  {status && (
+                    <Badge appearance="filled" color={status.color} size="small">
+                      {t(status.key)}
                     </Badge>
                   )}
                 </span>

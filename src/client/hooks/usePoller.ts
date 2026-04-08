@@ -1,17 +1,11 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 export function usePoller(callback: () => void, intervalMs: number) {
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
-
-  const start = useCallback(() => {
-    callbackRef.current();
-    const id = setInterval(() => callbackRef.current(), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
+  const onTick = useEffectEvent(callback);
 
   useEffect(() => {
-    const stop = start();
-    return stop;
-  }, [start]);
+    onTick();
+    const id = setInterval(() => onTick(), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
 }

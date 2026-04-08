@@ -9,12 +9,18 @@ import {
 } from "./inventory-service";
 import { assignGridSlot, clearGridSlotByOrder } from "./grid-service";
 import { getPaymentProvider } from "./payment";
-import { recordPaymentReconciliationIncident } from "./payment-reconciliation-service";
+import {
+  createPaymentReconciliationIncident,
+  deletePaymentReconciliationIncident,
+  recordPaymentReconciliationIncident,
+  updatePaymentReconciliationIncident,
+} from "./payment-reconciliation-service";
 import { getSettingInt } from "./settings-service";
 import { logError, logInfo, logWarn } from "./logger";
-import type { CancelReason, Order, OrderItem, OrderStatus } from "../types/models";
+import type { CancelReason, Order, OrderStatus } from "../types/models";
 import type { CreateOrderRequest } from "../types/api";
 import { getOrderById } from "./order-repository";
+import type { PaymentResult } from "./payment";
 
 interface ResolvedOrderItem {
   menuItemId: string;
@@ -251,6 +257,7 @@ async function refundCancelledOrder(
 }
 
 async function refundOrRecordIncident(input: {
+  pendingIncidentId: number;
   orderId: string;
   transactionRef: string;
   amountCents: number;
@@ -259,6 +266,7 @@ async function refundOrRecordIncident(input: {
   paymentMode?: "stub" | "live";
 }): Promise<string> {
   if (input.paymentMode === "stub") {
+    deletePaymentReconciliationIncident(input.pendingIncidentId);
     logWarn("order.create.stub_payment_reverted", {
       orderId: input.orderId,
       transactionRef: input.transactionRef,
@@ -273,7 +281,7 @@ async function refundOrRecordIncident(input: {
   if (refundResult.ok === false) {
     const reason =
       input.failure instanceof Error ? input.failure.message : String(input.failure);
-    recordPaymentReconciliationIncident({
+    updatePaymentReconciliationIncident(input.pendingIncidentId, {
       orderId: input.orderId,
       transactionRef: input.transactionRef,
       amountCents: input.amountCents,
@@ -290,6 +298,7 @@ async function refundOrRecordIncident(input: {
     return "Payment was processed but the order could not be completed. Staff has been notified to reconcile the transaction.";
   }
 
+  deletePaymentReconciliationIncident(input.pendingIncidentId);
   logWarn("order.create.refunded_after_failure", {
     orderId: input.orderId,
     transactionRef: input.transactionRef,
@@ -305,6 +314,7 @@ export async function createOrder(
   input: CreateOrderRequest | unknown
 ): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
   let stage = "validate-request";
+  let paymentResult: PaymentResult | null = null;
 
   const validation = validateCreateOrderRequest(input);
   if (validation.ok === false) {
@@ -365,8 +375,21 @@ export async function createOrder(
     paymentMode: payment.mode ?? "live",
   });
 
+  const pendingIncidentId = createPaymentReconciliationIncident({
+    orderId,
+    transactionRef: orderId,
+    amountCents: preChargeLimitCheck.totalCents,
+    incidentType: "order_create_payment_inflight",
+    details: [
+      `studentId=${studentId}`,
+      `paymentMethod=${req.paymentMethod}`,
+      `businessDate=${businessDate}`,
+      `paymentMode=${payment.mode ?? "live"}`,
+    ].join("; "),
+  });
+
   stage = "charge";
-  const paymentResult = await payment.charge({
+  paymentResult = await payment.charge({
     studentId,
     studentName,
     amountCents: preChargeLimitCheck.totalCents,
@@ -375,6 +398,7 @@ export async function createOrder(
   });
 
   if (paymentResult.ok === false) {
+    deletePaymentReconciliationIncident(pendingIncidentId);
     logWarn("order.create.payment_failed", {
       orderId,
       studentId,
@@ -395,6 +419,19 @@ export async function createOrder(
   });
 
   try {
+    stage = "record-payment";
+    updatePaymentReconciliationIncident(pendingIncidentId, {
+      transactionRef: paymentResult.transactionRef,
+      incidentType: "order_create_persist_pending",
+      details: [
+        `studentId=${studentId}`,
+        `paymentMethod=${req.paymentMethod}`,
+        `businessDate=${businessDate}`,
+        `paymentMode=${payment.mode ?? "live"}`,
+        `transactionRef=${paymentResult.transactionRef}`,
+      ].join("; "),
+    });
+
     const db = getDb();
     stage = "persist";
     db.transaction(() => {
@@ -477,6 +514,7 @@ export async function createOrder(
       error,
     });
     const errorMessage = await refundOrRecordIncident({
+      pendingIncidentId,
       orderId,
       transactionRef: paymentResult.transactionRef,
       amountCents: preChargeLimitCheck.totalCents,
@@ -491,6 +529,7 @@ export async function createOrder(
     return { ok: false, error: errorMessage };
   }
 
+  deletePaymentReconciliationIncident(pendingIncidentId);
   const order = getOrderById(orderId)!;
   logInfo("order.create.success", {
     orderId,

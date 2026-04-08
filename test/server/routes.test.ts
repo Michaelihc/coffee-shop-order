@@ -109,6 +109,50 @@ describe("server routes", () => {
     expect(stored).toBeUndefined();
   });
 
+  it("prevents admins from removing their own admin role", async () => {
+    const response = await request(context.app)
+      .patch("/api/admin/staff/dev-user")
+      .set(adminHeaders())
+      .send({ role: "staff" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "Cannot remove your own admin role",
+    });
+
+    const staffMember = getTestDb()
+      .prepare("SELECT role FROM staff WHERE aad_id = ?")
+      .get("dev-user") as { role: string };
+    expect(staffMember.role).toBe("admin");
+  });
+
+  it("prevents deleting the last remaining admin", async () => {
+    const response = await request(context.app)
+      .delete("/api/admin/staff/dev-user")
+      .set(adminHeaders());
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "Cannot remove yourself",
+    });
+
+    getTestDb()
+      .prepare("INSERT INTO staff (aad_id, display_name, role) VALUES (?, ?, ?)")
+      .run("admin-2", "Admin Two", "admin");
+
+    const deleteOtherAdmin = await request(context.app)
+      .delete("/api/admin/staff/admin-2")
+      .set(adminHeaders());
+
+    expect(deleteOtherAdmin.status).toBe(200);
+    expect(deleteOtherAdmin.body).toEqual({ ok: true });
+
+    const remainingAdmins = getTestDb()
+      .prepare("SELECT COUNT(*) as n FROM staff WHERE role = 'admin'")
+      .get() as { n: number };
+    expect(remainingAdmins.n).toBe(1);
+  });
+
   it("does not create an uploaded image file when the inventory item does not exist", async () => {
     const uploadsDir = path.join(context.tempDir, "images");
     const response = await request(context.app)

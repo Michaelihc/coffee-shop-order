@@ -86,9 +86,10 @@ function ThemedApp({
   teamsContext: app.Context | null;
 }) {
   const [theme, setTheme] = React.useState(initialTheme);
+  const initialTeamsTheme = teamsContext?.app?.theme;
 
   React.useEffect(() => {
-    applyDocumentTheme(teamsContext?.app?.theme);
+    applyDocumentTheme(initialTeamsTheme);
 
     // Listen for live theme changes when user switches Teams appearance
     try {
@@ -99,7 +100,7 @@ function ThemedApp({
     } catch {
       // Not in Teams — ignore
     }
-  }, []);
+  }, [initialTeamsTheme]);
 
   return (
     <FluentProvider theme={theme}>
