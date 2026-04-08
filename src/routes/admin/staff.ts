@@ -1,7 +1,13 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getDb } from "../../db/connection";
 import { requireAdmin } from "../../middleware/authorization";
+import {
+  addStaffMember,
+  listStaffMembers,
+  removeStaffMember,
+  staffMemberExists,
+  updateStaffMemberRole,
+} from "../../services/admin-staff-service";
 
 const router = Router();
 
@@ -9,18 +15,7 @@ router.use(requireAdmin);
 
 // GET /api/admin/staff — list all staff
 router.get("/", (_req: Request, res: Response) => {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT aad_id, display_name, role FROM staff ORDER BY display_name")
-    .all() as { aad_id: string; display_name: string; role: string }[];
-
-  res.json({
-    staff: rows.map((r) => ({
-      aadId: r.aad_id,
-      displayName: r.display_name,
-      role: r.role,
-    })),
-  });
+  res.json({ staff: listStaffMembers() });
 });
 
 // POST /api/admin/staff — add a staff member
@@ -35,15 +30,12 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const existing = db.prepare("SELECT * FROM staff WHERE aad_id = ?").get(aadId);
-  if (existing) {
+  if (staffMemberExists(aadId)) {
     res.status(409).json({ error: "User is already a staff member" });
     return;
   }
 
-  db.prepare("INSERT INTO staff (aad_id, display_name, role) VALUES (?, ?, ?)")
-    .run(aadId, displayName, role);
+  addStaffMember(aadId, displayName, role);
 
   res.status(201).json({ ok: true });
 });
@@ -57,12 +49,7 @@ router.patch("/:aadId", (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const result = db
-    .prepare("UPDATE staff SET role = ? WHERE aad_id = ?")
-    .run(role, aadId);
-
-  if (result.changes === 0) {
+  if (!updateStaffMemberRole(aadId, role)) {
     res.status(404).json({ error: "Staff member not found" });
     return;
   }
@@ -79,10 +66,7 @@ router.delete("/:aadId", (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const result = db.prepare("DELETE FROM staff WHERE aad_id = ?").run(aadId);
-
-  if (result.changes === 0) {
+  if (!removeStaffMember(aadId)) {
     res.status(404).json({ error: "Staff member not found" });
     return;
   }

@@ -33,7 +33,7 @@ router.get("/", (_req: Request, res: Response) => {
 });
 
 // PATCH /api/admin/grid/:id — clear a slot (marks order as collected)
-router.patch("/:id", (req: Request, res: Response) => {
+router.patch("/:id", async (req: Request, res: Response) => {
   const { clear } = req.body as { clear?: boolean };
   if (!clear) {
     res.status(400).json({ error: "Expected { clear: true }" });
@@ -48,7 +48,7 @@ router.patch("/:id", (req: Request, res: Response) => {
   }
 
   if (slot.currentOrderId) {
-    const result = updateOrderStatus(slot.currentOrderId, "collected");
+    const result = await updateOrderStatus(slot.currentOrderId, "collected");
     if (result.ok === false) {
       res.status(400).json({ error: result.error });
       return;

@@ -3,9 +3,18 @@ import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { getDb } from "../../db/connection";
 import { requireStaff } from "../../middleware/authorization";
-import { rowToMenuItem } from "../../services/inventory-service";
+import {
+  createInventoryItem,
+  deleteInventoryItem,
+  getInventoryItemRecord,
+  inventoryItemExists,
+  listInventoryData,
+  patchInventoryItem,
+  updateInventoryItem,
+  updateInventoryItemImage,
+} from "../../services/admin-inventory-service";
+import { ensureUploadsDir, getStoredImagePath, getUploadsDir } from "../../services/file-storage-service";
 import {
   validateInventoryCreatePayload,
   validateInventoryPatchPayload,
@@ -16,66 +25,31 @@ const router = Router();
 
 router.use(requireStaff);
 
-interface ItemRow {
-  id: string;
-  category_id: string;
-  name: string;
-  description: string | null;
-  price_cents: number;
-  item_class: string;
-  stock_count: number | null;
-  is_available: number;
-  image_url: string | null;
-  sort_order: number;
-}
-
 // GET /api/admin/inventory
 router.get("/", (_req: Request, res: Response) => {
-  const db = getDb();
-  const items = db
-    .prepare("SELECT * FROM menu_items ORDER BY category_id, sort_order")
-    .all() as ItemRow[];
-  const categories = db
-    .prepare("SELECT * FROM categories ORDER BY sort_order")
-    .all() as { id: string; label: string; sort_order: number; is_active: number }[];
-  res.json({ items: items.map(rowToMenuItem), categories });
+  res.json(listInventoryData());
 });
 
 // POST /api/admin/inventory — create new menu item
 router.post("/", (req: Request, res: Response) => {
-  const db = getDb();
   const validation = validateInventoryCreatePayload(req.body);
   if (validation.ok === false) {
     res.status(400).json({ error: validation.error });
     return;
   }
-  const { id, categoryId, name, description, priceCents, itemClass, stockCount } = validation.value;
+  const { id } = validation.value;
 
-  const existing = db.prepare("SELECT id FROM menu_items WHERE id = ?").get(id);
-  if (existing) {
+  if (inventoryItemExists(id)) {
     res.status(409).json({ error: "Item with this ID already exists" });
     return;
   }
 
-  const maxSort = db
-    .prepare("SELECT MAX(sort_order) as m FROM menu_items WHERE category_id = ?")
-    .get(categoryId) as { m: number | null };
-
-  db.prepare(
-    `INSERT INTO menu_items (id, category_id, name, description, price_cents, item_class, stock_count, is_available, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`
-  ).run(id, categoryId, name, description || null, priceCents, itemClass,
-    itemClass === "premade" ? (stockCount ?? 0) : null,
-    (maxSort.m ?? -1) + 1);
-
-  const created = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(id) as ItemRow;
-  res.status(201).json({ item: rowToMenuItem(created) });
+  res.status(201).json({ item: createInventoryItem(validation.value) });
 });
 
 // PUT /api/admin/inventory/:id — full update
 router.put("/:id", (req: Request, res: Response) => {
-  const db = getDb();
-  const item = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(req.params.id) as ItemRow | undefined;
+  const item = getInventoryItemRecord(req.params.id as string);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
@@ -88,50 +62,32 @@ router.put("/:id", (req: Request, res: Response) => {
   }
   const { categoryId, name, description, priceCents, itemClass, stockCount, sortOrder } = validation.value;
 
-  db.prepare(
-    `UPDATE menu_items SET
-       category_id = COALESCE(?, category_id),
-       name = COALESCE(?, name),
-       description = COALESCE(?, description),
-       price_cents = COALESCE(?, price_cents),
-       item_class = COALESCE(?, item_class),
-       stock_count = ?,
-       sort_order = COALESCE(?, sort_order)
-     WHERE id = ?`
-  ).run(
-    categoryId ?? null, name ?? null, description ?? null,
-    priceCents ?? null, itemClass ?? null,
-    (itemClass ?? item.item_class) === "premade" ? (stockCount ?? item.stock_count ?? 0) : null,
-    sortOrder ?? null, req.params.id
-  );
-
-  const updated = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(req.params.id) as ItemRow;
-  res.json({ item: rowToMenuItem(updated) });
+  res.json({
+    item: updateInventoryItem(req.params.id as string, item, {
+      categoryId,
+      name,
+      description,
+      priceCents,
+      itemClass,
+      stockCount,
+      sortOrder,
+    }),
+  });
 });
 
 // DELETE /api/admin/inventory/:id — delete item (soft-delete if orders reference it)
 router.delete("/:id", (req: Request, res: Response) => {
-  const db = getDb();
-  const item = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(req.params.id) as ItemRow | undefined;
+  const item = getInventoryItemRecord(req.params.id as string);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
 
-  const orderRef = db.prepare("SELECT COUNT(*) as n FROM order_items WHERE menu_item_id = ?").get(req.params.id) as { n: number };
-  if (orderRef.n > 0) {
-    // Soft-delete: mark unavailable
-    db.prepare("UPDATE menu_items SET is_available = 0 WHERE id = ?").run(req.params.id);
-    res.json({ deleted: false, softDeleted: true });
-  } else {
-    db.prepare("DELETE FROM menu_items WHERE id = ?").run(req.params.id);
-    res.json({ deleted: true });
-  }
+  res.json(deleteInventoryItem(req.params.id as string));
 });
 
 // PATCH /api/admin/inventory/:id
 router.patch("/:id", (req: Request, res: Response) => {
-  const db = getDb();
   const validation = validateInventoryPatchPayload(req.body);
   if (validation.ok === false) {
     res.status(400).json({ error: validation.error });
@@ -139,44 +95,23 @@ router.patch("/:id", (req: Request, res: Response) => {
   }
   const { stockCount, isAvailable } = validation.value;
 
-  const item = db
-    .prepare("SELECT * FROM menu_items WHERE id = ?")
-    .get(req.params.id) as ItemRow | undefined;
+  const item = getInventoryItemRecord(req.params.id as string);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
 
-  if (stockCount !== undefined) {
-    db.prepare("UPDATE menu_items SET stock_count = ? WHERE id = ?").run(
+  res.json({
+    item: patchInventoryItem(req.params.id as string, {
       stockCount,
-      req.params.id
-    );
-  }
-  if (isAvailable !== undefined) {
-    db.prepare("UPDATE menu_items SET is_available = ? WHERE id = ?").run(
-      isAvailable ? 1 : 0,
-      req.params.id
-    );
-  }
-
-  const updated = db
-    .prepare("SELECT * FROM menu_items WHERE id = ?")
-    .get(req.params.id) as ItemRow;
-  res.json({ item: rowToMenuItem(updated) });
+      isAvailable,
+    }),
+  });
 });
-
-// Image upload setup
-const uploadsDir = process.env.DB_PATH
-  ? path.join(path.dirname(process.env.DB_PATH), "images")
-  : path.join(process.cwd(), "data", "images");
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
+    cb(null, ensureUploadsDir());
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
@@ -198,11 +133,8 @@ const upload = multer({
 
 // POST /api/admin/inventory/:id/image — upload image
 router.post("/:id/image", (req: Request, res: Response) => {
-  const db = getDb();
   const itemId = req.params.id as string;
-  const existingItem = db
-    .prepare("SELECT * FROM menu_items WHERE id = ?")
-    .get(itemId) as ItemRow | undefined;
+  const existingItem = getInventoryItemRecord(itemId);
   if (!existingItem) {
     res.status(404).json({ error: "Item not found" });
     return;
@@ -229,29 +161,20 @@ router.post("/:id/image", (req: Request, res: Response) => {
         return;
       }
 
-      // Delete old image if exists
-      if (existingItem.image_url) {
-        const oldPath = path.join(uploadsDir, path.basename(existingItem.image_url));
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath);
-        }
-      }
-
       const previousImagePath = existingItem.image_url
-        ? path.join(uploadsDir, path.basename(existingItem.image_url))
+        ? getStoredImagePath(existingItem.image_url)
         : null;
       const imageUrl = `/uploads/${req.file.filename}`;
-      db.prepare("UPDATE menu_items SET image_url = ? WHERE id = ?").run(imageUrl, itemId);
+      const updatedItem = updateInventoryItemImage(itemId, imageUrl);
 
       if (previousImagePath && fs.existsSync(previousImagePath)) {
         fs.unlinkSync(previousImagePath);
       }
 
-      const updated = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(itemId) as ItemRow;
-      res.json({ item: rowToMenuItem(updated) });
+      res.json({ item: updatedItem });
     } catch (e: unknown) {
       if (req.file) {
-        const uploadedPath = path.join(uploadsDir, req.file.filename);
+        const uploadedPath = path.join(getUploadsDir(), req.file.filename);
         if (fs.existsSync(uploadedPath)) {
           fs.unlinkSync(uploadedPath);
         }
@@ -265,24 +188,20 @@ router.post("/:id/image", (req: Request, res: Response) => {
 
 // DELETE /api/admin/inventory/:id/image — remove image
 router.delete("/:id/image", (req: Request, res: Response) => {
-  const db = getDb();
-  const item = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(req.params.id) as ItemRow | undefined;
+  const item = getInventoryItemRecord(req.params.id as string);
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
 
   if (item.image_url) {
-    const imgPath = path.join(uploadsDir, path.basename(item.image_url));
+    const imgPath = getStoredImagePath(item.image_url);
     if (fs.existsSync(imgPath)) {
       fs.unlinkSync(imgPath);
     }
   }
 
-  db.prepare("UPDATE menu_items SET image_url = NULL WHERE id = ?").run(req.params.id);
-
-  const updated = db.prepare("SELECT * FROM menu_items WHERE id = ?").get(req.params.id) as ItemRow;
-  res.json({ item: rowToMenuItem(updated) });
+  res.json({ item: updateInventoryItemImage(req.params.id as string, null) });
 });
 
 export default router;

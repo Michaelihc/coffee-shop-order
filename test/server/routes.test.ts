@@ -4,6 +4,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createTestApp, getTestDb, adminHeaders, type TestAppContext } from "../helpers/test-app";
+import { getCurrentBusinessDate } from "../../src/services/business-time-service";
 
 describe("server routes", () => {
   let context: TestAppContext;
@@ -123,5 +124,16 @@ describe("server routes", () => {
 
     const files = fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir) : [];
     expect(files).toEqual([]);
+  });
+
+  it("returns the server business date with admin queue responses", async () => {
+    const response = await request(context.app)
+      .get("/api/admin/orders")
+      .set(adminHeaders());
+
+    expect(response.status).toBe(200);
+    expect(response.body.businessDate).toBe(getCurrentBusinessDate());
+    expect(response.body).toHaveProperty("orders");
+    expect(response.body).toHaveProperty("counts");
   });
 });

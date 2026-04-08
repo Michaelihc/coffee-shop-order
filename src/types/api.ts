@@ -50,6 +50,11 @@ export interface UpdateOrderStatusRequest {
   cancelNote?: string;
 }
 
+export interface UpdateOrderStatusResponse {
+  order: Order;
+  warning?: string;
+}
+
 // PATCH /api/admin/inventory/:id
 export interface UpdateInventoryRequest {
   stockCount?: number;
@@ -66,6 +71,7 @@ export interface UpdateWindowRequest {
 export interface AdminOrdersResponse {
   orders: Order[];
   counts: Record<OrderStatus, number>;
+  businessDate: string;
 }
 
 // GET /api/admin/grid

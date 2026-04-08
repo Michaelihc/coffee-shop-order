@@ -14,10 +14,19 @@ function parseBoolean(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-export function getRuntimeEnvironment(): string {
+function getConfiguredRuntimeEnvironment(): string {
   return (
     process.env.TEAMSFX_ENV ||
     process.env.ENV_NAME ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+}
+
+export function getRuntimeEnvironment(): string {
+  return (
+    getConfiguredRuntimeEnvironment() ||
     process.env.NODE_ENV ||
     ""
   )
@@ -26,7 +35,7 @@ export function getRuntimeEnvironment(): string {
 }
 
 export function isLocalDevMode(): boolean {
-  const env = getRuntimeEnvironment();
+  const env = getConfiguredRuntimeEnvironment();
   return env === "local" || env === "dev" || env === "development";
 }
 

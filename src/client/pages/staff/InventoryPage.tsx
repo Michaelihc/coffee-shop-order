@@ -107,6 +107,7 @@ export function InventoryPage() {
   const { t } = useTranslation();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -122,6 +123,13 @@ export function InventoryPage() {
       .then((data) => {
         setItems(data.items);
         setCategories(data.categories);
+        setStockDrafts(
+          Object.fromEntries(
+            data.items
+              .filter((item) => item.itemClass === "premade")
+              .map((item) => [item.id, String(item.stockCount ?? 0)])
+          )
+        );
       })
       .finally(() => setLoading(false));
   }
@@ -135,14 +143,51 @@ export function InventoryPage() {
     setSuccess(null);
   }
 
-  async function handleStockChange(itemId: string, stockCount: number) {
-    await updateInventoryStock(itemId, stockCount);
-    fetchItems();
+  async function commitStock(item: MenuItem) {
+    clearMessages();
+    const rawValue = stockDrafts[item.id] ?? String(item.stockCount ?? 0);
+    const nextValue = Number.parseInt(rawValue, 10);
+    const currentValue = item.stockCount ?? 0;
+
+    if (!Number.isInteger(nextValue) || nextValue < 0) {
+      setError(t("common.failedToSave"));
+      setStockDrafts((prev) => ({
+        ...prev,
+        [item.id]: String(currentValue),
+      }));
+      return;
+    }
+
+    if (nextValue === currentValue) {
+      return;
+    }
+
+    try {
+      await updateInventoryStock(item.id, nextValue);
+      setSuccess(t("inventory.itemUpdated"));
+      fetchItems();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+      setStockDrafts((prev) => ({
+        ...prev,
+        [item.id]: String(currentValue),
+      }));
+    }
   }
 
   async function handleToggleAvailable(itemId: string, isAvailable: boolean) {
     await updateInventoryAvailability(itemId, isAvailable);
     fetchItems();
+  }
+
+  function handleCommitOnEnter(
+    event: React.KeyboardEvent<HTMLInputElement>,
+    commit: () => void
+  ) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    }
   }
 
   function openAdd() {
@@ -291,13 +336,15 @@ export function InventoryPage() {
                     className={styles.stockInput}
                     type="number"
                     size="small"
-                    value={String(item.stockCount ?? 0)}
-                    onChange={(_, data) => {
-                      const val = parseInt(data.value, 10);
-                      if (!isNaN(val) && val >= 0) {
-                        handleStockChange(item.id, val);
-                      }
-                    }}
+                    value={stockDrafts[item.id] ?? String(item.stockCount ?? 0)}
+                    onChange={(_, data) =>
+                      setStockDrafts((prev) => ({
+                        ...prev,
+                        [item.id]: data.value,
+                      }))
+                    }
+                    onBlur={() => void commitStock(item)}
+                    onKeyDown={(event) => handleCommitOnEnter(event, () => void commitStock(item))}
                   />
                 ) : (
                   "\u2014"

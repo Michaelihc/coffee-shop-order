@@ -62,7 +62,7 @@ router.get("/mine/:orderId", (req: Request, res: Response) => {
 });
 
 // POST /api/orders/mine/:orderId/collect — student confirms pickup
-router.post("/mine/:orderId/collect", (req: Request, res: Response) => {
+router.post("/mine/:orderId/collect", async (req: Request, res: Response) => {
   const order = getOrderById(req.params.orderId as string);
   if (!order || order.studentAadId !== req.user.userId) {
     res.status(404).json({ error: "Order not found" });
@@ -74,9 +74,9 @@ router.post("/mine/:orderId/collect", (req: Request, res: Response) => {
     return;
   }
 
-  const result = updateOrderStatus(req.params.orderId as string, "collected");
-  if (!result.ok) {
-    res.status(400).json({ error: (result as { ok: false; error: string }).error });
+  const result = await updateOrderStatus(req.params.orderId as string, "collected");
+  if (result.ok === false) {
+    res.status(400).json({ error: result.error });
     return;
   }
 

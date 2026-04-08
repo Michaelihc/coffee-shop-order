@@ -1,8 +1,14 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getDb } from "../../db/connection";
 import { requireStaff } from "../../middleware/authorization";
-import { getPickupWindows } from "../../services/capacity";
+import {
+  createPickupWindow,
+  deletePickupWindow,
+  getPickupWindowRecord,
+  listPickupWindowsForAdmin,
+  pickupWindowExists,
+  updatePickupWindow,
+} from "../../services/admin-window-service";
 import {
   validateWindowCreatePayload,
   validateWindowUpdatePayload,
@@ -14,42 +20,30 @@ router.use(requireStaff);
 
 // GET /api/admin/windows
 router.get("/", (_req: Request, res: Response) => {
-  const windows = getPickupWindows();
+  const windows = listPickupWindowsForAdmin();
   res.json({ windows });
 });
 
 // POST /api/admin/windows — create new window
 router.post("/", (req: Request, res: Response) => {
-  const db = getDb();
   const validation = validateWindowCreatePayload(req.body);
   if (validation.ok === false) {
     res.status(400).json({ error: validation.error });
     return;
   }
-  const { id, label, startsAt, endsAt, madeToOrderCap } = validation.value;
+  const { id } = validation.value;
 
-  const existing = db.prepare("SELECT id FROM pickup_windows WHERE id = ?").get(id);
-  if (existing) {
+  if (pickupWindowExists(id)) {
     res.status(409).json({ error: "Window with this ID already exists" });
     return;
   }
 
-  const maxSort = db
-    .prepare("SELECT MAX(sort_order) as m FROM pickup_windows")
-    .get() as { m: number | null };
-
-  db.prepare(
-    "INSERT INTO pickup_windows (id, label, starts_at, ends_at, made_to_order_cap, is_active, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?)"
-  ).run(id, label, startsAt, endsAt, madeToOrderCap, (maxSort.m ?? -1) + 1);
-
-  const windows = getPickupWindows();
-  const created = windows.find((w) => w.id === id);
+  const created = createPickupWindow(validation.value);
   res.status(201).json({ window: created });
 });
 
 // PUT /api/admin/windows/:id — full update
 router.put("/:id", (req: Request, res: Response) => {
-  const db = getDb();
   const windowId = req.params.id as string;
   const validation = validateWindowUpdatePayload(req.body);
   if (validation.ok === false) {
@@ -58,59 +52,31 @@ router.put("/:id", (req: Request, res: Response) => {
   }
   const { label, startsAt, endsAt, madeToOrderCap, isActive } = validation.value;
 
-  const existing = db
-    .prepare("SELECT * FROM pickup_windows WHERE id = ?")
-    .get(windowId);
-  if (!existing) {
+  if (!getPickupWindowRecord(windowId)) {
     res.status(404).json({ error: "Window not found" });
     return;
   }
 
-  if (label !== undefined) {
-    db.prepare("UPDATE pickup_windows SET label = ? WHERE id = ?").run(label, windowId);
-  }
-  if (startsAt !== undefined) {
-    db.prepare("UPDATE pickup_windows SET starts_at = ? WHERE id = ?").run(startsAt, windowId);
-  }
-  if (endsAt !== undefined) {
-    db.prepare("UPDATE pickup_windows SET ends_at = ? WHERE id = ?").run(endsAt, windowId);
-  }
-  if (madeToOrderCap !== undefined) {
-    db.prepare("UPDATE pickup_windows SET made_to_order_cap = ? WHERE id = ?").run(madeToOrderCap, windowId);
-  }
-  if (isActive !== undefined) {
-    db.prepare("UPDATE pickup_windows SET is_active = ? WHERE id = ?").run(isActive ? 1 : 0, windowId);
-  }
-
-  const windows = getPickupWindows();
-  const updated = windows.find((w) => w.id === windowId);
+  const updated = updatePickupWindow(windowId, {
+    label,
+    startsAt,
+    endsAt,
+    madeToOrderCap,
+    isActive,
+  });
   res.json({ window: updated });
 });
 
 // DELETE /api/admin/windows/:id
 router.delete("/:id", (req: Request, res: Response) => {
-  const db = getDb();
   const windowId = req.params.id as string;
 
-  const existing = db.prepare("SELECT * FROM pickup_windows WHERE id = ?").get(windowId);
-  if (!existing) {
+  if (!getPickupWindowRecord(windowId)) {
     res.status(404).json({ error: "Window not found" });
     return;
   }
 
-  // Check if any orders reference this window
-  const orderRef = db
-    .prepare("SELECT COUNT(*) as n FROM orders WHERE pickup_window_id = ?")
-    .get(windowId) as { n: number };
-
-  if (orderRef.n > 0) {
-    // Soft-delete: deactivate
-    db.prepare("UPDATE pickup_windows SET is_active = 0 WHERE id = ?").run(windowId);
-    res.json({ deleted: false, deactivated: true });
-  } else {
-    db.prepare("DELETE FROM pickup_windows WHERE id = ?").run(windowId);
-    res.json({ deleted: true });
-  }
+  res.json(deletePickupWindow(windowId));
 });
 
 export default router;

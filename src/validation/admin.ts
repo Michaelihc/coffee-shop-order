@@ -1,3 +1,5 @@
+import { isAppSettingKey, type AppSettingKey } from "../config/app-settings";
+
 interface ValidationSuccess<T> {
   ok: true;
   value: T;
@@ -246,7 +248,6 @@ export function validateWindowUpdatePayload(payload: unknown): ValidationResult<
     },
   };
 }
-
 const POSITIVE_INTEGER_SETTINGS = new Set<AppSettingKey>([
   "max_items_per_order",
   "max_order_total_cents",
@@ -283,4 +284,3 @@ export function validateSettingValue(key: string, rawValue: unknown): Validation
 
   return { ok: true, value: normalizedValue };
 }
-import { isAppSettingKey, type AppSettingKey } from "../config/app-settings";

@@ -25,7 +25,7 @@ import { OrderCard } from "../../components/OrderCard";
 import { usePoller } from "../../hooks/usePoller";
 import { useNotifications } from "../../hooks/useNotifications";
 import { seedOrNotify } from "../../notification-polling";
-import type { AdminOrdersResponse } from "../../../types/api";
+import type { AdminOrdersResponse, UpdateOrderStatusResponse } from "../../../types/api";
 import type { CancelReason, Order, OrderStatus } from "../../../types/models";
 
 const useStyles = makeStyles({
@@ -164,9 +164,10 @@ export function QueuePage() {
     cancelled: 0,
   });
   const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [cancelDialogOrder, setCancelDialogOrder] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState<CancelReason>("out-of-stock");
   const [cancelNote, setCancelNote] = useState("");
@@ -180,11 +181,13 @@ export function QueuePage() {
   }, [dateFilter]);
 
   const fetchOrders = useCallback(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const params = dateFilter !== today ? `?date=${dateFilter}` : "";
+    const params = dateFilter ? `?date=${dateFilter}` : "";
     api
       .get<AdminOrdersResponse>(`/api/admin/orders${params}`)
       .then((data) => {
+        if (dateFilter === null) {
+          setDateFilter(data.businessDate);
+        }
         const nextState = seedOrNotify(
           {
             hasSeeded: hasSeededNotificationsRef.current,
@@ -213,10 +216,12 @@ export function QueuePage() {
 
   async function handleStatusChange(orderId: string, newStatus: OrderStatus) {
     setError(null);
+    setWarning(null);
     try {
-      await api.patch(`/api/admin/orders/${orderId}/status`, {
+      const response = await api.patch<UpdateOrderStatusResponse>(`/api/admin/orders/${orderId}/status`, {
         status: newStatus,
       });
+      setWarning(response.warning ?? null);
       fetchOrders();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("queue.failedToUpdate"));
@@ -243,13 +248,15 @@ export function QueuePage() {
       return;
     }
     setError(null);
+    setWarning(null);
     setCancelling(true);
     try {
-      await api.patch(`/api/admin/orders/${cancelDialogOrder.id}/status`, {
+      const response = await api.patch<UpdateOrderStatusResponse>(`/api/admin/orders/${cancelDialogOrder.id}/status`, {
         status: "cancelled",
         cancelReason,
         cancelNote: cancelNote.trim() || undefined,
       });
+      setWarning(response.warning ?? null);
       closeCancelDialog();
       fetchOrders();
     } catch (err: unknown) {
@@ -294,7 +301,7 @@ export function QueuePage() {
         </Dropdown>
         <input
           type="date"
-          value={dateFilter}
+          value={dateFilter ?? ""}
           onChange={(e) => setDateFilter(e.target.value)}
           style={{
             padding: "4px 8px",
@@ -309,6 +316,11 @@ export function QueuePage() {
       {error && (
         <MessageBar intent="error">
           <MessageBarBody>{error}</MessageBarBody>
+        </MessageBar>
+      )}
+      {warning && (
+        <MessageBar intent="warning">
+          <MessageBarBody>{warning}</MessageBarBody>
         </MessageBar>
       )}
 

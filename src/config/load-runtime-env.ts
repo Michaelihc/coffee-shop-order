@@ -44,13 +44,28 @@ function parseEnvFile(filePath: string) {
 
 function loadRuntimeEnv() {
   const root = getProjectRoot();
-  const teamsEnv = process.env.TEAMSFX_ENV || process.env.ENV_NAME || "local";
-  const candidateFiles = [
-    path.join(root, "env", ".env.dev"),
-    path.join(root, "env", `.env.${teamsEnv}`),
-    path.join(root, "env", `.env.${teamsEnv}.user`),
-    path.join(root, ".localConfigs"),
-  ];
+  const configuredEnv = (process.env.TEAMSFX_ENV || process.env.ENV_NAME || "").trim();
+  const hasLocalFallbackFiles =
+    fs.existsSync(path.join(root, "env", ".env.local")) ||
+    fs.existsSync(path.join(root, ".localConfigs"));
+  const teamsEnv = configuredEnv || (hasLocalFallbackFiles ? "local" : "");
+  const normalizedEnv = teamsEnv.toLowerCase();
+  const isLocalLike =
+    normalizedEnv === "local" ||
+    normalizedEnv === "dev" ||
+    normalizedEnv === "development";
+  const candidateFiles: string[] = [];
+
+  if (isLocalLike) {
+    candidateFiles.push(path.join(root, "env", ".env.dev"));
+  }
+  if (teamsEnv) {
+    candidateFiles.push(path.join(root, "env", `.env.${teamsEnv}`));
+    candidateFiles.push(path.join(root, "env", `.env.${teamsEnv}.user`));
+  }
+  if (isLocalLike) {
+    candidateFiles.push(path.join(root, ".localConfigs"));
+  }
 
   const mergedValues: Record<string, string> = {};
   const loadedFiles: string[] = [];

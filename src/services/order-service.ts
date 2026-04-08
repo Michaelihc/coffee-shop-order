@@ -24,6 +24,10 @@ interface ResolvedOrderItem {
   itemClass: string;
 }
 
+export type UpdateOrderStatusResult =
+  | { ok: true; order: Order; warning?: string }
+  | { ok: false; error: string };
+
 class OrderCreationFailure extends Error {
   constructor(public readonly userMessage: string) {
     super(userMessage);
@@ -99,8 +103,8 @@ function validateCreateOrderRequest(
   };
 }
 
-function formatUsd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+function formatCurrency(cents: number): string {
+  return `¥${(cents / 100).toFixed(2)}`;
 }
 
 function getStudentDailySpendCents(studentId: string, businessDate = getCurrentBusinessDate()): number {
@@ -173,11 +177,77 @@ function validateOrderLimits(
   if (spentToday + totalCents > dailySpendLimit) {
     return {
       ok: false,
-      error: `Daily spending limit exceeded. Limit: ${formatUsd(dailySpendLimit)}. Already ordered today: ${formatUsd(spentToday)}`,
+      error: `Daily spending limit exceeded. Limit: ${formatCurrency(dailySpendLimit)}. Already ordered today: ${formatCurrency(spentToday)}`,
     };
   }
 
   return { ok: true, totalCents, hasMadeToOrder };
+}
+
+async function refundCancelledOrder(
+  order: Order,
+  options?: { cancelReason?: string; cancelNote?: string | null }
+): Promise<string | undefined> {
+  if (order.paymentMethod !== "student-card" || !order.paymentRef) {
+    return undefined;
+  }
+
+  try {
+    const refundResult = await getPaymentProvider().refund(order.paymentRef, order.totalCents);
+    if (refundResult.ok === false) {
+      const details = [
+        `cancelReason=${options?.cancelReason || "unspecified"}`,
+        `cancelNote=${options?.cancelNote?.trim() || "none"}`,
+        `refund failed: ${refundResult.reason}`,
+      ].join("; ");
+      recordPaymentReconciliationIncident({
+        orderId: order.id,
+        transactionRef: order.paymentRef,
+        amountCents: order.totalCents,
+        incidentType: "refund_failed_after_order_cancel",
+        details,
+      });
+      logError("order.cancel.refund_failed", {
+        orderId: order.id,
+        transactionRef: order.paymentRef,
+        amountCents: order.totalCents,
+        cancelReason: options?.cancelReason ?? null,
+        cancelNote: options?.cancelNote ?? null,
+        refundReason: refundResult.reason,
+      });
+      return "Order cancelled, but the refund could not be completed automatically. Staff has been notified to reconcile the payment.";
+    }
+
+    logInfo("order.cancel.refunded", {
+      orderId: order.id,
+      transactionRef: order.paymentRef,
+      amountCents: order.totalCents,
+      cancelReason: options?.cancelReason ?? null,
+    });
+    return undefined;
+  } catch (error) {
+    const details = [
+      `cancelReason=${options?.cancelReason || "unspecified"}`,
+      `cancelNote=${options?.cancelNote?.trim() || "none"}`,
+      `refund error: ${error instanceof Error ? error.message : String(error)}`,
+    ].join("; ");
+    recordPaymentReconciliationIncident({
+      orderId: order.id,
+      transactionRef: order.paymentRef,
+      amountCents: order.totalCents,
+      incidentType: "refund_failed_after_order_cancel",
+      details,
+    });
+    logError("order.cancel.refund_exception", {
+      orderId: order.id,
+      transactionRef: order.paymentRef,
+      amountCents: order.totalCents,
+      cancelReason: options?.cancelReason ?? null,
+      cancelNote: options?.cancelNote ?? null,
+      error,
+    });
+    return "Order cancelled, but the refund could not be completed automatically. Staff has been notified to reconcile the payment.";
+  }
 }
 
 async function refundOrRecordIncident(input: {
@@ -438,11 +508,11 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   ready: ["collected", "cancelled"],
 };
 
-export function updateOrderStatus(
+export async function updateOrderStatus(
   orderId: string,
   newStatus: OrderStatus,
   options?: { cancelReason?: string; cancelNote?: string | null }
-): { ok: true; order: Order } | { ok: false; error: string } {
+): Promise<UpdateOrderStatusResult> {
   const db = getDb();
   const order = getOrderById(orderId);
   if (!order) return { ok: false, error: "Order not found" };
@@ -513,5 +583,16 @@ export function updateOrderStatus(
     };
   }
 
-  return { ok: true, order: getOrderById(orderId)! };
+  const updatedOrder = getOrderById(orderId)!;
+  if (newStatus !== "cancelled") {
+    return { ok: true, order: updatedOrder };
+  }
+
+  const warning = await refundCancelledOrder(order, {
+    cancelReason,
+    cancelNote,
+  });
+  return warning
+    ? { ok: true, order: updatedOrder, warning }
+    : { ok: true, order: updatedOrder };
 }

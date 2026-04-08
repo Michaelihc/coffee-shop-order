@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import { createOrder } from "../../src/services/order-service";
+import { updateOrderStatus } from "../../src/services/order-service";
 import { setPaymentProvider } from "../../src/services/payment";
 import { isWindowAcceptingOrders } from "../../src/services/capacity";
 import type { PaymentProvider } from "../../src/services/payment";
@@ -149,6 +150,94 @@ describe("order-service stability", () => {
     expect(incident.transaction_ref).toBe("tx-refund-failure");
     expect(incident.incident_type).toBe("refund_failed_after_order_create_failure");
     expect(incident.details).toContain("gateway offline");
+  });
+
+  it("refunds paid orders when staff cancel them", async () => {
+    let refundCalls = 0;
+    const provider: PaymentProvider = {
+      async charge() {
+        return { ok: true, transactionRef: "tx-cancel-refund" };
+      },
+      async refund() {
+        refundCalls += 1;
+        return { ok: true, transactionRef: "refund-cancel-refund" };
+      },
+    };
+    setPaymentProvider(provider);
+
+    const created = await createOrder("student-8", "Student Eight", {
+      pickupWindowId: "mid-break",
+      paymentMethod: "student-card",
+      items: [{ menuItemId: "water", quantity: 1 }],
+    });
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    const result = await updateOrderStatus(created.order.id, "cancelled", {
+      cancelReason: "other",
+      cancelNote: "duplicate order",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      order: expect.objectContaining({
+        id: created.order.id,
+        status: "cancelled",
+        cancelReason: "other",
+        cancelNote: "duplicate order",
+      }),
+    });
+    expect(refundCalls).toBe(1);
+  });
+
+  it("records a reconciliation incident when refunding a cancelled paid order fails", async () => {
+    const provider: PaymentProvider = {
+      async charge() {
+        return { ok: true, transactionRef: "tx-cancel-refund-failure" };
+      },
+      async refund() {
+        return { ok: false, reason: "processor unavailable" };
+      },
+    };
+    setPaymentProvider(provider);
+
+    const created = await createOrder("student-9", "Student Nine", {
+      pickupWindowId: "mid-break",
+      paymentMethod: "student-card",
+      items: [{ menuItemId: "water", quantity: 1 }],
+    });
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    const result = await updateOrderStatus(created.order.id, "cancelled", {
+      cancelReason: "out-of-stock",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.order.status).toBe("cancelled");
+      expect(result.warning).toBe(
+        "Order cancelled, but the refund could not be completed automatically. Staff has been notified to reconcile the payment."
+      );
+    }
+
+    const incident = getTestDb()
+      .prepare(
+        `SELECT transaction_ref, incident_type, details
+         FROM payment_reconciliation_incidents
+         WHERE order_id = ?`
+      )
+      .get(created.order.id) as { transaction_ref: string; incident_type: string; details: string };
+
+    expect(incident.transaction_ref).toBe("tx-cancel-refund-failure");
+    expect(incident.incident_type).toBe("refund_failed_after_order_cancel");
+    expect(incident.details).toContain("processor unavailable");
   });
 
   it("returns a stub-safe failure message when persistence fails after a simulated charge", async () => {

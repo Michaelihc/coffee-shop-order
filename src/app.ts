@@ -9,6 +9,7 @@ import { getDb, initDb } from "./db/connection";
 import { migrateDatabase } from "./db/schema";
 import { seedIfEmpty } from "./db/seed";
 import { identityMiddleware } from "./middleware/identity";
+import { ensureUploadsDir } from "./services/file-storage-service";
 
 import meRouter from "./routes/me";
 import menuRouter from "./routes/menu";
@@ -33,12 +34,7 @@ function readOptionalFile(filePath?: string) {
 }
 
 function configureStaticAssets(app: express.Express) {
-  const uploadsDir = process.env.DB_PATH
-    ? path.join(path.dirname(process.env.DB_PATH), "images")
-    : path.join(process.cwd(), "data", "images");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
+  const uploadsDir = ensureUploadsDir();
 
   app.use("/uploads", express.static(uploadsDir));
   app.use("/static/scripts", express.static(path.join(__dirname, "../lib/static/scripts")));
