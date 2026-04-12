@@ -175,19 +175,25 @@ export function DashboardPanel({ open, onClose }: DashboardPanelProps) {
   const { t } = useTranslation();
   const { checkDashboard } = useNotifications();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const prevStatsRef = useRef<DashboardStatsForNotif | null>(null);
 
   const fetchStats = useCallback(() => {
-    api.get<DashboardStats>("/api/admin/dashboard").then((data) => {
-      const forNotif: DashboardStatsForNotif = {
-        lowStockItems: data.lowStockItems,
-        windowStats: data.windowStats,
-      };
-      checkDashboard(prevStatsRef.current, forNotif);
-      prevStatsRef.current = forNotif;
-      setStats(data);
-    });
-  }, [checkDashboard]);
+    return api.get<DashboardStats>("/api/admin/dashboard")
+      .then((data) => {
+        const forNotif: DashboardStatsForNotif = {
+          lowStockItems: data.lowStockItems,
+          windowStats: data.windowStats,
+        };
+        checkDashboard(prevStatsRef.current, forNotif);
+        prevStatsRef.current = forNotif;
+        setStats(data);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        setLoadError(error instanceof Error ? error.message : t("common.failedToLoad"));
+      });
+  }, [checkDashboard, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -219,7 +225,7 @@ export function DashboardPanel({ open, onClose }: DashboardPanelProps) {
               color: tokens.colorNeutralForeground3,
             }}
           >
-            {t("common.loading")}
+            {loadError || t("common.loading")}
           </div>
         ) : (
           <>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Button,
   Input,
@@ -178,23 +178,28 @@ export function ConfigPage() {
   const [windowForm, setWindowForm] = useState(emptyWindowForm);
   const [saving, setSaving] = useState(false);
 
-  function fetchWindows() {
+  const fetchWindows = useCallback(() => {
     fetchWindowsData()
       .then((data) => {
         setWindows(data.windows);
+        setError(null);
         setWindowCapDrafts(
           Object.fromEntries(
             data.windows.map((window) => [window.id, String(window.madeToOrderCap)])
           )
         );
       })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : t("common.failedToLoad"));
+      })
       .finally(() => setLoading(false));
-  }
+  }, [t]);
 
-  function fetchSettings() {
+  const fetchSettings = useCallback(() => {
     fetchSettingsData()
       .then((data) => {
         setSettings(data.settings);
+        setError(null);
         setSettingDrafts({
           max_items_per_order:
             data.settings.max_items_per_order || DEFAULT_SETTING_VALUES.max_items_per_order,
@@ -205,13 +210,16 @@ export function ConfigPage() {
           enforce_window_cap:
             data.settings.enforce_window_cap || DEFAULT_SETTING_VALUES.enforce_window_cap,
         });
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : t("common.failedToLoad"));
       });
-  }
+  }, [t]);
 
   useEffect(() => {
     fetchWindows();
     fetchSettings();
-  }, []);
+  }, [fetchSettings, fetchWindows]);
 
   function clearMessages() {
     setError(null);
@@ -254,15 +262,27 @@ export function ConfigPage() {
   }
 
   async function handleToggleActive(windowId: string, isActive: boolean) {
-    await updateWindow(windowId, { isActive });
-    fetchWindows();
+    clearMessages();
+    try {
+      await updateWindow(windowId, { isActive });
+      setSuccess(t("config.windowUpdated"));
+      fetchWindows();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+    }
   }
 
-  async function handleSettingChange(key: string, value: string) {
-    await updateSetting(key, value);
-    setSuccess(t("config.settingUpdated"));
-    fetchSettings();
-    setTimeout(() => setSuccess(null), 2000);
+  async function handleSettingChange(key: string, value: string): Promise<boolean> {
+    try {
+      await updateSetting(key, value);
+      setSuccess(t("config.settingUpdated"));
+      fetchSettings();
+      setTimeout(() => setSuccess(null), 2000);
+      return true;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+      return false;
+    }
   }
 
   async function commitSetting(key: "max_items_per_order" | "max_order_total_cents" | "daily_spend_limit_cents") {
@@ -283,10 +303,8 @@ export function ConfigPage() {
       return;
     }
 
-    try {
-      await handleSettingChange(key, String(nextValue));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+    const saved = await handleSettingChange(key, String(nextValue));
+    if (!saved) {
       setSettingDrafts((prev) => ({
         ...prev,
         [key]: currentValue,

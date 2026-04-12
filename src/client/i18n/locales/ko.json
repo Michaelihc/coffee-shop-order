@@ -10,6 +10,7 @@
   "common.actions": "작업",
   "common.name": "이름",
   "common.description": "설명",
+  "common.failedToLoad": "불러오기에 실패했습니다",
   "common.failedToSave": "저장 실패",
   "common.failedToDelete": "삭제 실패",
 

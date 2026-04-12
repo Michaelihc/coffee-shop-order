@@ -15,6 +15,7 @@ import {
 } from "./api-client";
 import { pushAuthDebug } from "./auth-debug";
 import { initI18n } from "./i18n";
+import { isTokenUsable } from "./teams-auth";
 
 let cachedAccessToken: string | undefined;
 
@@ -47,9 +48,11 @@ function summarizeToken(token: string): string {
 }
 
 async function getTeamsAccessToken(options?: { allowPrompt?: boolean }) {
-  if (cachedAccessToken) {
+  if (cachedAccessToken && isTokenUsable(cachedAccessToken)) {
     return cachedAccessToken;
   }
+
+  cachedAccessToken = undefined;
 
   try {
     cachedAccessToken = await authentication.getAuthToken({ silent: true });

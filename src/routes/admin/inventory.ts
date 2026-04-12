@@ -5,6 +5,7 @@ import fs from "fs";
 import multer from "multer";
 import { requireStaff } from "../../middleware/authorization";
 import {
+  categoryExists,
   createInventoryItem,
   deleteInventoryItem,
   getInventoryItemRecord,
@@ -43,6 +44,10 @@ router.post("/", (req: Request, res: Response) => {
     res.status(409).json({ error: "Item with this ID already exists" });
     return;
   }
+  if (!categoryExists(validation.value.categoryId)) {
+    res.status(400).json({ error: "Category not found" });
+    return;
+  }
 
   res.status(201).json({ item: createInventoryItem(validation.value) });
 });
@@ -61,6 +66,10 @@ router.put("/:id", (req: Request, res: Response) => {
     return;
   }
   const { categoryId, name, description, priceCents, itemClass, stockCount, sortOrder } = validation.value;
+  if (categoryId && !categoryExists(categoryId)) {
+    res.status(400).json({ error: "Category not found" });
+    return;
+  }
 
   res.json({
     item: updateInventoryItem(req.params.id as string, item, {

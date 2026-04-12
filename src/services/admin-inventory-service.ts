@@ -52,6 +52,11 @@ export function inventoryItemExists(itemId: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM menu_items WHERE id = ?").get(itemId));
 }
 
+export function categoryExists(categoryId: string): boolean {
+  const db = getDb();
+  return Boolean(db.prepare("SELECT 1 FROM categories WHERE id = ?").get(categoryId));
+}
+
 export function getInventoryItemRecord(itemId: string): InventoryItemRow | null {
   const db = getDb();
   return (db.prepare("SELECT * FROM menu_items WHERE id = ?").get(itemId) as InventoryItemRow | undefined) ?? null;
@@ -86,27 +91,36 @@ export function updateInventoryItem(
   input: InventoryUpdateInput
 ): MenuItem {
   const db = getDb();
+  const nextCategoryId = input.categoryId ?? currentItem.category_id;
+  const nextName = input.name ?? currentItem.name;
+  const nextDescription =
+    input.description !== undefined ? input.description : currentItem.description;
+  const nextPriceCents = input.priceCents ?? currentItem.price_cents;
+  const nextItemClass = input.itemClass ?? currentItem.item_class;
+  const nextSortOrder = input.sortOrder ?? currentItem.sort_order;
+  const nextStockCount =
+    nextItemClass === "premade"
+      ? (input.stockCount ?? currentItem.stock_count ?? 0)
+      : null;
 
   db.prepare(
     `UPDATE menu_items SET
-       category_id = COALESCE(?, category_id),
-       name = COALESCE(?, name),
-       description = COALESCE(?, description),
-       price_cents = COALESCE(?, price_cents),
-       item_class = COALESCE(?, item_class),
+       category_id = ?,
+       name = ?,
+       description = ?,
+       price_cents = ?,
+       item_class = ?,
        stock_count = ?,
-       sort_order = COALESCE(?, sort_order)
+       sort_order = ?
      WHERE id = ?`
   ).run(
-    input.categoryId ?? null,
-    input.name ?? null,
-    input.description ?? null,
-    input.priceCents ?? null,
-    input.itemClass ?? null,
-    (input.itemClass ?? currentItem.item_class) === "premade"
-      ? (input.stockCount ?? currentItem.stock_count ?? 0)
-      : null,
-    input.sortOrder ?? null,
+    nextCategoryId,
+    nextName,
+    nextDescription,
+    nextPriceCents,
+    nextItemClass,
+    nextStockCount,
+    nextSortOrder,
     itemId
   );
 

@@ -156,6 +156,39 @@ describe("order-service stability", () => {
     expect(incident.details).toContain("gateway offline");
   });
 
+  it("records a reconciliation incident when the payment provider throws during charge", async () => {
+    const provider: PaymentProvider = {
+      async charge() {
+        throw new Error("gateway timeout");
+      },
+      async refund() {
+        return { ok: true, transactionRef: "unused" };
+      },
+    };
+    setPaymentProvider(provider);
+
+    const result = await createOrder("student-10", "Student Ten", {
+      pickupWindowId: "mid-break",
+      paymentMethod: "student-card",
+      items: [{ menuItemId: "water", quantity: 1 }],
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Payment could not be confirmed. Staff has been notified to reconcile the transaction if a charge was attempted.",
+    });
+
+    const incident = getTestDb()
+      .prepare(
+        "SELECT incident_type, details FROM payment_reconciliation_incidents LIMIT 1"
+      )
+      .get() as { incident_type: string; details: string };
+
+    expect(incident.incident_type).toBe("order_create_charge_failed");
+    expect(incident.details).toContain("gateway timeout");
+  });
+
   it("refunds paid orders when staff cancel them", async () => {
     let refundCalls = 0;
     const provider: PaymentProvider = {
@@ -282,6 +315,58 @@ describe("order-service stability", () => {
       ok: false,
       error: "Failed to create order. No payment was taken. Please try again.",
     });
+
+    transactionSpy.mockRestore();
+  });
+
+  it("records a reconciliation incident when refunding after a persistence failure throws", async () => {
+    const provider: PaymentProvider = {
+      async charge() {
+        return { ok: true, transactionRef: "tx-refund-exception" };
+      },
+      async refund() {
+        throw new Error("refund transport offline");
+      },
+    };
+    setPaymentProvider(provider);
+
+    const db = getTestDb();
+    const originalTransaction = db.transaction.bind(db);
+    let transactionCallCount = 0;
+    const transactionSpy = vi
+      .spyOn(db, "transaction")
+      .mockImplementation(((fn: (...args: unknown[]) => unknown) => {
+        transactionCallCount += 1;
+        if (transactionCallCount === 1) {
+          return originalTransaction(fn);
+        }
+
+        return ((..._args: unknown[]) => {
+          throw new Error("synthetic persist failure");
+        }) as ReturnType<typeof originalTransaction>;
+      }) as typeof db.transaction);
+
+    const result = await createOrder("student-11", "Student Eleven", {
+      pickupWindowId: "mid-break",
+      paymentMethod: "student-card",
+      items: [{ menuItemId: "water", quantity: 1 }],
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Payment was processed but the order could not be completed. Staff has been notified to reconcile the transaction.",
+    });
+
+    const incident = getTestDb()
+      .prepare(
+        "SELECT transaction_ref, incident_type, details FROM payment_reconciliation_incidents"
+      )
+      .get() as { transaction_ref: string; incident_type: string; details: string };
+
+    expect(incident.transaction_ref).toBe("tx-refund-exception");
+    expect(incident.incident_type).toBe("refund_failed_after_order_create_failure");
+    expect(incident.details).toContain("refund transport offline");
 
     transactionSpy.mockRestore();
   });

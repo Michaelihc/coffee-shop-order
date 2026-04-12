@@ -170,6 +170,45 @@ describe("server routes", () => {
     expect(files).toEqual([]);
   });
 
+  it("rejects inventory items created with an unknown category", async () => {
+    const response = await request(context.app)
+      .post("/api/admin/inventory")
+      .set(adminHeaders())
+      .send({
+        id: "bad-category-item",
+        categoryId: "missing-category",
+        name: "Broken Drink",
+        description: null,
+        priceCents: 500,
+        itemClass: "premade",
+        stockCount: 5,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "Category not found" });
+  });
+
+  it("allows inventory descriptions to be cleared", async () => {
+    const response = await request(context.app)
+      .put("/api/admin/inventory/water")
+      .set(adminHeaders())
+      .send({
+        categoryId: "cold-drinks",
+        name: "Water Bottle",
+        description: null,
+        priceCents: 150,
+        itemClass: "premade",
+        stockCount: 30,
+      });
+
+    expect(response.status).toBe(200);
+
+    const updated = getTestDb()
+      .prepare("SELECT description FROM menu_items WHERE id = ?")
+      .get("water") as { description: string | null };
+    expect(updated.description).toBeNull();
+  });
+
   it("returns the server business date with admin queue responses", async () => {
     const response = await request(context.app)
       .get("/api/admin/orders")

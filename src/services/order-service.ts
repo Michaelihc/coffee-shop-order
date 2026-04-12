@@ -113,6 +113,10 @@ function formatCurrency(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function getStudentDailySpendCents(studentId: string, businessDate = getCurrentBusinessDate()): number {
   const db = getDb();
   const row = db
@@ -277,10 +281,30 @@ async function refundOrRecordIncident(input: {
   }
 
   const paymentProvider = getPaymentProvider();
-  const refundResult = await paymentProvider.refund(input.transactionRef, input.amountCents);
+  let refundResult: PaymentResult;
+  try {
+    refundResult = await paymentProvider.refund(input.transactionRef, input.amountCents);
+  } catch (error) {
+    const reason = getErrorMessage(input.failure);
+    updatePaymentReconciliationIncident(input.pendingIncidentId, {
+      orderId: input.orderId,
+      transactionRef: input.transactionRef,
+      amountCents: input.amountCents,
+      incidentType: "refund_failed_after_order_create_failure",
+      details: `${reason}; refund error: ${getErrorMessage(error)}`,
+    });
+    logError("order.create.refund_exception", {
+      orderId: input.orderId,
+      transactionRef: input.transactionRef,
+      amountCents: input.amountCents,
+      failure: input.failure,
+      refundError: error,
+    });
+    return "Payment was processed but the order could not be completed. Staff has been notified to reconcile the transaction.";
+  }
+
   if (refundResult.ok === false) {
-    const reason =
-      input.failure instanceof Error ? input.failure.message : String(input.failure);
+    const reason = getErrorMessage(input.failure);
     updatePaymentReconciliationIncident(input.pendingIncidentId, {
       orderId: input.orderId,
       transactionRef: input.transactionRef,
@@ -315,6 +339,7 @@ export async function createOrder(
 ): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
   let stage = "validate-request";
   let paymentResult: PaymentResult | null = null;
+  let handledChargeException = false;
 
   const validation = validateCreateOrderRequest(input);
   if (validation.ok === false) {
@@ -389,24 +414,68 @@ export async function createOrder(
   });
 
   stage = "charge";
-  paymentResult = await payment.charge({
-    studentId,
-    studentName,
-    amountCents: preChargeLimitCheck.totalCents,
-    orderId,
-    method: req.paymentMethod,
-  });
+  try {
+    paymentResult = await payment.charge({
+      studentId,
+      studentName,
+      amountCents: preChargeLimitCheck.totalCents,
+      orderId,
+      method: req.paymentMethod,
+    });
+  } catch (error) {
+    handledChargeException = true;
+    if (payment.mode === "stub") {
+      deletePaymentReconciliationIncident(pendingIncidentId);
+    } else {
+      updatePaymentReconciliationIncident(pendingIncidentId, {
+        orderId,
+        amountCents: preChargeLimitCheck.totalCents,
+        incidentType: "order_create_charge_failed",
+        details: [
+          `studentId=${studentId}`,
+          `paymentMethod=${req.paymentMethod}`,
+          `businessDate=${businessDate}`,
+          `paymentMode=${payment.mode ?? "live"}`,
+          `charge error: ${getErrorMessage(error)}`,
+        ].join("; "),
+      });
+    }
+    logError("order.create.charge_exception", {
+      orderId,
+      studentId,
+      paymentMethod: req.paymentMethod,
+      paymentMode: payment.mode ?? "live",
+        amountCents: preChargeLimitCheck.totalCents,
+        error,
+      });
+  }
 
-  if (paymentResult.ok === false) {
+  if (handledChargeException) {
+    return {
+      ok: false,
+      error:
+        payment.mode === "stub"
+          ? "Failed to create order. No payment was taken. Please try again."
+          : "Payment could not be confirmed. Staff has been notified to reconcile the transaction if a charge was attempted.",
+    };
+  }
+
+  if (!paymentResult || paymentResult.ok === false) {
     deletePaymentReconciliationIncident(pendingIncidentId);
     logWarn("order.create.payment_failed", {
       orderId,
       studentId,
       paymentMethod: req.paymentMethod,
       paymentMode: payment.mode ?? "live",
-      reason: paymentResult.reason,
+      reason: paymentResult?.ok === false ? paymentResult.reason : "unknown",
     });
-    return { ok: false, error: `Payment failed: ${paymentResult.reason}` };
+    return {
+      ok: false,
+      error:
+        paymentResult?.ok === false
+          ? `Payment failed: ${paymentResult.reason}`
+          : "Payment failed",
+    };
   }
 
   logInfo("order.create.payment_succeeded", {

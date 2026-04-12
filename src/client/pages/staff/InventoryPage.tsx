@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Button,
   Input,
@@ -118,11 +118,12 @@ export function InventoryPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  function fetchItems() {
+  const fetchItems = useCallback(() => {
     fetchInventory()
       .then((data) => {
         setItems(data.items);
         setCategories(data.categories);
+        setError(null);
         setStockDrafts(
           Object.fromEntries(
             data.items
@@ -131,12 +132,15 @@ export function InventoryPage() {
           )
         );
       })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : t("common.failedToLoad"));
+      })
       .finally(() => setLoading(false));
-  }
+  }, [t]);
 
   useEffect(() => {
     fetchItems();
-  }, []);
+  }, [fetchItems]);
 
   function clearMessages() {
     setError(null);
@@ -176,8 +180,14 @@ export function InventoryPage() {
   }
 
   async function handleToggleAvailable(itemId: string, isAvailable: boolean) {
-    await updateInventoryAvailability(itemId, isAvailable);
-    fetchItems();
+    clearMessages();
+    try {
+      await updateInventoryAvailability(itemId, isAvailable);
+      setSuccess(t("inventory.itemUpdated"));
+      fetchItems();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+    }
   }
 
   function handleCommitOnEnter(

@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from "react";
 import {
   Button,
+  MessageBar,
+  MessageBarBody,
   Spinner,
   makeStyles,
   tokens,
@@ -114,6 +116,7 @@ export function ReportsPage() {
   const [totalTodaySpendCents, setTotalTodaySpendCents] = useState(0);
   const [totalLifetimeSpendCents, setTotalLifetimeSpendCents] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -126,9 +129,13 @@ export function ReportsPage() {
         setSpending(spendingData.spending);
         setTotalTodaySpendCents(spendingData.totalTodaySpendCents);
         setTotalLifetimeSpendCents(spendingData.totalLifetimeSpendCents);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : t("common.failedToLoad"));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   usePoller(fetchData, 30000);
 
@@ -164,6 +171,12 @@ export function ReportsPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <MessageBar intent="error">
+          <MessageBarBody>{error}</MessageBarBody>
+        </MessageBar>
+      )}
 
       <div className={styles.summaryGrid}>
         <div className={styles.summaryCard}>
