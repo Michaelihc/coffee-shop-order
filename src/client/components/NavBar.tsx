@@ -146,9 +146,7 @@ export function NavBar({ role, displayName, userId, onToggleDashboard, dashboard
   const navTabTheme =
     context?.app?.theme === "contrast" ? coffeeHighContrastTheme : coffeeDarkTheme;
 
-  const selectedTab =
-    tabs.find((t) => t.value === location.pathname)?.value ||
-    tabs[0].value;
+  const selectedTab = tabs.find((t) => t.value === location.pathname)?.value;
 
   return (
     <nav className={styles.nav}>

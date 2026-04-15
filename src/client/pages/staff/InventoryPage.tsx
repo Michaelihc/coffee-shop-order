@@ -24,6 +24,7 @@ import {
   fetchInventory,
   removeInventoryImage,
   saveInventoryItem,
+  updateInventoryAdvertising,
   updateInventoryAvailability,
   updateInventoryStock,
   uploadInventoryImage,
@@ -190,6 +191,17 @@ export function InventoryPage() {
     }
   }
 
+  async function handleToggleAdvertised(itemId: string, isAdvertised: boolean) {
+    clearMessages();
+    try {
+      await updateInventoryAdvertising(itemId, isAdvertised);
+      setSuccess(t("inventory.itemUpdated"));
+      fetchItems();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.failedToSave"));
+    }
+  }
+
   function handleCommitOnEnter(
     event: React.KeyboardEvent<HTMLInputElement>,
     commit: () => void
@@ -317,6 +329,7 @@ export function InventoryPage() {
             <th className={styles.th}>{t("inventory.type")}</th>
             <th className={styles.th}>{t("inventory.stock")}</th>
             <th className={styles.th}>{t("inventory.available")}</th>
+            <th className={styles.th}>{t("inventory.advertised")}</th>
             <th className={styles.th}>{t("common.actions")}</th>
           </tr>
         </thead>
@@ -365,6 +378,14 @@ export function InventoryPage() {
                   checked={item.isAvailable}
                   onChange={(_, data) =>
                     handleToggleAvailable(item.id, data.checked)
+                  }
+                />
+              </td>
+              <td className={styles.td}>
+                <Switch
+                  checked={item.isAdvertised}
+                  onChange={(_, data) =>
+                    handleToggleAdvertised(item.id, data.checked)
                   }
                 />
               </td>

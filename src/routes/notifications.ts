@@ -4,7 +4,10 @@ import { enableNotificationDebugRoutes } from "../config/runtime-mode";
 import { requireAdmin, requireAuthenticated } from "../middleware/authorization";
 import { getGraphAccessToken, getGraphAppCredentials, getGraphClient } from "../services/graph-auth-service";
 import { logError } from "../services/logger";
-import { sendTeamsNotification } from "../services/teams-notification-service";
+import {
+  getTeamsTabEndpoint,
+  sendTeamsNotification,
+} from "../services/teams-notification-service";
 
 const router = Router();
 
@@ -114,12 +117,17 @@ router.get("/test-auth", requireNotificationDebugAccess, async (_req, res) => {
  * Debug endpoint to check environment variables
  */
 router.get("/debug", requireNotificationDebugAccess, (_req, res) => {
+  const effectiveTabEndpoint = getTeamsTabEndpoint();
   res.json({
     TEAMS_APP_TENANT_ID: process.env.TEAMS_APP_TENANT_ID ? "SET" : "MISSING",
     AAD_APP_CLIENT_ID: process.env.AAD_APP_CLIENT_ID ? "SET" : "MISSING",
     AAD_APP_CLIENT_SECRET: process.env.AAD_APP_CLIENT_SECRET ? "SET" : "MISSING",
     TEAMS_APP_ID: process.env.TEAMS_APP_ID ? "SET" : "MISSING",
     TEAMS_APP_ID_VALUE: process.env.TEAMS_APP_ID,
+    TAB_ENDPOINT: process.env.TAB_ENDPOINT ? "SET" : "MISSING",
+    TAB_DOMAIN: process.env.TAB_DOMAIN ? "SET" : "MISSING",
+    WEBSITE_HOSTNAME: process.env.WEBSITE_HOSTNAME ?? null,
+    EFFECTIVE_TAB_ENDPOINT: effectiveTabEndpoint,
   });
 });
 
@@ -129,7 +137,7 @@ router.get("/debug", requireNotificationDebugAccess, (_req, res) => {
  */
 router.post("/send", requireAuthenticated, async (req, res) => {
   try {
-    const { title, body } = req.body;
+    const { title, body, targetPath } = req.body;
     if (!title || !body) {
       return res.status(400).json({ error: "Title and body are required" });
     }
@@ -138,6 +146,7 @@ router.post("/send", requireAuthenticated, async (req, res) => {
       userId: req.user!.userId,
       title,
       body,
+      targetPath: typeof targetPath === "string" ? targetPath : undefined,
     });
 
     res.json(result);

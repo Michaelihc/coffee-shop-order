@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Tab,
   TabList,
@@ -42,7 +42,13 @@ export function MenuPage() {
   const { items: cartItems, addItem, updateQuantity } = useCart();
   const [categories, setCategories] = useState<(Category & { items: MenuItem[] })[]>([]);
   const [selectedCat, setSelectedCat] = useState<string>("");
+  const [scrollTarget, setScrollTarget] = useState<{
+    itemId: string;
+    requestId: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const scrollRequestIdRef = useRef(0);
 
   useEffect(() => {
     api
@@ -56,16 +62,35 @@ export function MenuPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Spinner label={t("menu.loading")} />;
-
   const allItems = categories.flatMap((c) => c.items);
   const currentCat = categories.find((c) => c.id === selectedCat);
+
+  useEffect(() => {
+    if (!scrollTarget) {
+      return;
+    }
+
+    const target = itemRefs.current[scrollTarget.itemId];
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [currentCat, scrollTarget]);
+
+  if (loading) return <Spinner label={t("menu.loading")} />;
 
   return (
     <div className={styles.container}>
       <AdBanner
         items={allItems}
-        onItemClick={(catId) => setSelectedCat(catId)}
+        onItemClick={(item) => {
+          setSelectedCat(item.categoryId);
+          setScrollTarget({
+            itemId: item.id,
+            requestId: ++scrollRequestIdRef.current,
+          });
+        }}
       />
 
       <TabList
@@ -85,20 +110,26 @@ export function MenuPage() {
           {currentCat.items.map((item) => {
             const cartItem = cartItems.find((ci) => ci.menuItemId === item.id);
             return (
-              <MenuItemCard
+              <div
                 key={item.id}
-                item={item}
-                quantity={cartItem?.quantity ?? 0}
-                onAdd={(i) =>
-                  addItem({
-                    menuItemId: i.id,
-                    name: getLocalizedMenuItemName(t, i),
-                    priceCents: i.priceCents,
-                    itemClass: i.itemClass,
-                  })
-                }
-                onUpdateQuantity={updateQuantity}
-              />
+                ref={(node) => {
+                  itemRefs.current[item.id] = node;
+                }}
+              >
+                <MenuItemCard
+                  item={item}
+                  quantity={cartItem?.quantity ?? 0}
+                  onAdd={(i) =>
+                    addItem({
+                      menuItemId: i.id,
+                      name: getLocalizedMenuItemName(t, i),
+                      priceCents: i.priceCents,
+                      itemClass: i.itemClass,
+                    })
+                  }
+                  onUpdateQuantity={updateQuantity}
+                />
+              </div>
             );
           })}
         </div>

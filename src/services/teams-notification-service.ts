@@ -12,6 +12,57 @@ export interface TeamsNotificationPayload {
   userId: string;
   title: string;
   body: string;
+  targetPath?: string;
+}
+
+const TEAMS_TAB_ENTITY_ID = "index0";
+
+export function getTeamsTabEndpoint(): string | null {
+  const configuredEndpoint = process.env.TAB_ENDPOINT?.trim();
+  if (configuredEndpoint) {
+    return configuredEndpoint.replace(/\/+$/, "");
+  }
+
+  const websiteHostname = process.env.WEBSITE_HOSTNAME?.trim();
+  if (!websiteHostname) {
+    return null;
+  }
+
+  const normalizedHostname = websiteHostname
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+
+  return normalizedHostname ? `https://${normalizedHostname}` : null;
+}
+
+export function buildTeamsDeepLink(
+  appId: string,
+  tenantId: string,
+  targetPath: string,
+): string | null {
+  const endpoint = getTeamsTabEndpoint();
+  if (!endpoint) {
+    return null;
+  }
+
+  const teamsDeepLink = new URL(
+    `https://teams.microsoft.com/l/entity/${appId}/${TEAMS_TAB_ENTITY_ID}`
+  );
+  const targetUrl = new URL(`/app${targetPath}`, endpoint);
+  const subPageId = targetPath.replace(/^\//, "") || "home";
+
+  teamsDeepLink.searchParams.set("tenantId", tenantId);
+  teamsDeepLink.searchParams.set("webUrl", targetUrl.toString());
+  teamsDeepLink.searchParams.set("label", "Coffee Shop");
+  teamsDeepLink.searchParams.set(
+    "context",
+    JSON.stringify({
+      subEntityId: subPageId,
+      subPageId,
+    })
+  );
+
+  return teamsDeepLink.toString();
 }
 
 /**
@@ -46,11 +97,21 @@ export async function sendTeamsNotification(
 
     const installationId = installations.value[0].id;
 
+    const deepLink = payload.targetPath
+      ? buildTeamsDeepLink(credentials.teamsAppId, credentials.tenantId, payload.targetPath)
+      : null;
+
     const notification = {
-      topic: {
-        source: "entityUrl",
-        value: `https://graph.microsoft.com/v1.0/users/${payload.userId}/teamwork/installedApps/${installationId}`,
-      },
+      topic: deepLink
+        ? {
+            source: "text",
+            value: "Coffee Shop",
+            webUrl: deepLink,
+          }
+        : {
+            source: "entityUrl",
+            value: `https://graph.microsoft.com/v1.0/users/${payload.userId}/teamwork/installedApps/${installationId}`,
+          },
       activityType: "taskCreated",
       previewText: {
         content: payload.body,

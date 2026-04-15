@@ -1,3 +1,5 @@
+import { pushAuthDebug } from "./auth-debug";
+
 const USER_HEADERS: Record<string, string> = {};
 const LANGUAGE_STORAGE_KEY = "coffee-shop-lang";
 let accessTokenProvider: (() => Promise<string | undefined>) | null = null;
@@ -81,7 +83,6 @@ async function request<T>(
 
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
-      const { pushAuthDebug } = await import("./auth-debug");
       const bodyText = await res.clone().text().catch(() => "");
       pushAuthDebug(
         `401 on ${path}`,

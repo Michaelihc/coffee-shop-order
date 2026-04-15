@@ -16,13 +16,19 @@ import type { Order } from "../types/models";
 
 const router = Router();
 router.use(requireAuthenticated);
+const STUDENT_ORDERS_PATH = "/orders";
 
 function notifyStudentOrderUpdate(
   userId: string,
   title: string,
   body: string,
 ) {
-  void sendTeamsNotification({ userId, title, body }).catch((error) => {
+  void sendTeamsNotification({
+    userId,
+    title,
+    body,
+    targetPath: STUDENT_ORDERS_PATH,
+  }).catch((error) => {
     console.error("[Orders] Failed to send student Teams notification:", error);
   });
 }

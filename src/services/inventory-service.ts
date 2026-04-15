@@ -10,6 +10,7 @@ interface ItemRow {
   item_class: string;
   stock_count: number | null;
   is_available: number;
+  is_advertised: number;
   image_url: string | null;
   sort_order: number;
 }
@@ -98,6 +99,7 @@ export function rowToMenuItem(row: ItemRow): MenuItem {
     itemClass: row.item_class as MenuItem["itemClass"],
     stockCount: row.stock_count,
     isAvailable,
+    isAdvertised: row.is_advertised === 1,
     imageUrl: row.image_url,
     sortOrder: row.sort_order,
     availabilityLabel,

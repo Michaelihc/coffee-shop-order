@@ -37,6 +37,7 @@ export interface MenuItem {
   itemClass: ItemClass;
   stockCount: number | null;
   isAvailable: boolean;
+  isAdvertised: boolean;
   imageUrl: string | null;
   sortOrder: number;
   availabilityLabel?: "available" | "limited" | "made-fresh" | "sold-out";

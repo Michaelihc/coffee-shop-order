@@ -22,6 +22,10 @@ export async function updateInventoryAvailability(itemId: string, isAvailable: b
   return api.patch(`/api/admin/inventory/${itemId}`, { isAvailable });
 }
 
+export async function updateInventoryAdvertising(itemId: string, isAdvertised: boolean) {
+  return api.patch(`/api/admin/inventory/${itemId}`, { isAdvertised });
+}
+
 export async function saveInventoryItem(
   item: {
     id?: string;

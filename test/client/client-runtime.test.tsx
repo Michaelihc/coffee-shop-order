@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 
 import { usePoller } from "../../src/client/hooks/usePoller";
+import {
+  getTeamsDeepLinkSubPageId,
+  resolveTeamsSubPagePath,
+} from "../../src/client/teams-deep-link";
 import { getTokenExpiryTimestamp, isTokenUsable } from "../../src/client/teams-auth";
 
 function createTestJwt(expSeconds: number): string {
@@ -41,6 +45,39 @@ describe("client runtime helpers", () => {
     expect(getTokenExpiryTimestamp(freshToken)).not.toBeNull();
     expect(isTokenUsable(freshToken)).toBe(true);
     expect(isTokenUsable(staleToken)).toBe(false);
+  });
+
+  it("reads Teams deep links from either context or URL query fallbacks", () => {
+    expect(
+      getTeamsDeepLinkSubPageId(
+        { page: { subPageId: "orders" } } as never,
+        ""
+      )
+    ).toBe("orders");
+
+    expect(
+      getTeamsDeepLinkSubPageId(
+        { page: { subEntityId: "orders" } } as never,
+        ""
+      )
+    ).toBe("orders");
+
+    expect(
+      getTeamsDeepLinkSubPageId(
+        null,
+        "?context=%7B%22subEntityId%22%3A%22orders%22%7D"
+      )
+    ).toBe("orders");
+
+    expect(
+      getTeamsDeepLinkSubPageId(
+        null,
+        "?webUrl=https%3A%2F%2Fexample.com%2Fapp%2Forders"
+      )
+    ).toBe("orders");
+
+    expect(resolveTeamsSubPagePath("orders", false)).toBe("/orders");
+    expect(resolveTeamsSubPagePath("orders", true)).toBeNull();
   });
 
   it("does not start another poll while the previous one is still running", async () => {

@@ -13,7 +13,9 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
-import { useNotifications } from "../hooks/useNotifications";
+import {
+  useNotifications,
+} from "../hooks/useNotifications";
 
 const useStyles = makeStyles({
   wrapper: {
@@ -75,6 +77,15 @@ export function NotificationCenter() {
     useNotifications();
   const [open, setOpen] = useState(false);
 
+  function handleNotificationClick(id: string, targetPath?: string) {
+    markRead(id);
+
+    if (targetPath) {
+      setOpen(false);
+      setTimeout(() => navigate(targetPath), 100);
+    }
+  }
+
   return (
     <div className={styles.wrapper}>
       <Menu open={open} onOpenChange={(_, data) => setOpen(data.open)}>
@@ -113,7 +124,7 @@ export function NotificationCenter() {
                   <MenuItem
                     key={n.id}
                     className={n.read ? undefined : styles.unread}
-                    onClick={() => markRead(n.id)}
+                    onClick={() => handleNotificationClick(n.id, n.targetPath)}
                   >
                     <div className={styles.item}>
                       <span className={styles.itemTitle}>{t(n.titleKey)}</span>

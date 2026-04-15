@@ -102,7 +102,7 @@ router.patch("/:id", (req: Request, res: Response) => {
     res.status(400).json({ error: validation.error });
     return;
   }
-  const { stockCount, isAvailable } = validation.value;
+  const { stockCount, isAvailable, isAdvertised } = validation.value;
 
   const item = getInventoryItemRecord(req.params.id as string);
   if (!item) {
@@ -114,6 +114,7 @@ router.patch("/:id", (req: Request, res: Response) => {
     item: patchInventoryItem(req.params.id as string, {
       stockCount,
       isAvailable,
+      isAdvertised,
     }),
   });
 });

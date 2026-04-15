@@ -21,6 +21,7 @@ interface ItemRow {
   item_class: string;
   stock_count: number | null;
   is_available: number;
+  is_advertised: number;
   image_url: string | null;
   sort_order: number;
 }

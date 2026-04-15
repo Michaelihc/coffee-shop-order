@@ -170,6 +170,7 @@
   "inventory.type": "Type",
   "inventory.stock": "Stock",
   "inventory.available": "Available",
+  "inventory.advertised": "Advertise",
   "inventory.noImg": "No img",
   "inventory.changeImg": "Change Img",
   "inventory.addImg": "Add Img",

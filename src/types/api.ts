@@ -59,6 +59,7 @@ export interface UpdateOrderStatusResponse {
 export interface UpdateInventoryRequest {
   stockCount?: number;
   isAvailable?: boolean;
+  isAdvertised?: boolean;
 }
 
 // PUT /api/admin/windows/:id

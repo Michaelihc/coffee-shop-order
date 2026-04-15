@@ -13,6 +13,8 @@ param aadAppClientSecret string = ''
 param serverfarmsName string = resourceBaseName
 param webAppName string = resourceBaseName
 param location string = resourceGroup().location
+var defaultTabDomain = '${webAppName}.azurewebsites.net'
+var defaultTabEndpoint = 'https://${defaultTabDomain}'
 
 // Compute resources for your Web App
 resource serverfarm 'Microsoft.Web/serverfarms@2021-02-01' = {
@@ -66,6 +68,14 @@ resource webApp 'Microsoft.Web/sites@2021-02-01' = {
           name: 'AAD_APP_CLIENT_SECRET'
           value: aadAppClientSecret
         }
+        {
+          name: 'TAB_DOMAIN'
+          value: defaultTabDomain
+        }
+        {
+          name: 'TAB_ENDPOINT'
+          value: defaultTabEndpoint
+        }
       ]
       ftpsState: 'FtpsOnly'
     }
@@ -75,4 +85,4 @@ resource webApp 'Microsoft.Web/sites@2021-02-01' = {
 // The output will be persisted in .env.{envName}. Visit https://aka.ms/teamsfx-actions/arm-deploy for more details.
 output TAB_AZURE_APP_SERVICE_RESOURCE_ID string = webApp.id // used in deploy stage
 output TAB_DOMAIN string = webApp.properties.defaultHostName
-output TAB_ENDPOINT string = 'https://${webApp.properties.defaultHostName}'
+output TAB_ENDPOINT string = defaultTabEndpoint

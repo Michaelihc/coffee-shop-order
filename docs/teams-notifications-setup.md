@@ -120,6 +120,7 @@ Expected `debug` output:
 - `TEAMS_APP_TENANT_ID: SET`
 - `AAD_APP_CLIENT_ID: SET`
 - `AAD_APP_CLIENT_SECRET: SET`
+- `EFFECTIVE_TAB_ENDPOINT: https://<your-app-host>`
 
 ## Common Failure Modes
 
@@ -132,6 +133,18 @@ Fix:
 - Confirm `src/config/load-runtime-env.ts` is present and imported by `src/app.ts`.
 - Confirm env values exist in `env/.env.<env>` or `.localConfigs`.
 - Restart locally, or redeploy Azure.
+
+### Notifications open the menu instead of `My Orders`
+
+Cause:
+- The activity notification was sent without a usable deep link, so Teams opened the app's default tab.
+- This usually happens when the backend cannot resolve the tab host and falls back to the installed-app topic link.
+
+Fix:
+- Open `GET /api/notifications/debug`.
+- Confirm `EFFECTIVE_TAB_ENDPOINT` is populated with your Azure app URL.
+- If `TAB_ENDPOINT` is missing in Azure, the backend now falls back to `WEBSITE_HOSTNAME`.
+- Re-send a test notification after redeploying the backend.
 
 ### Azure site returns `500` on every route after deploy
 

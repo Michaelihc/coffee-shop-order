@@ -170,6 +170,7 @@
   "inventory.type": "유형",
   "inventory.stock": "재고",
   "inventory.available": "이용 가능",
+  "inventory.advertised": "광고 표시",
   "inventory.noImg": "이미지 없음",
   "inventory.changeImg": "이미지 변경",
   "inventory.addImg": "이미지 추가",

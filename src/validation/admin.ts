@@ -35,6 +35,7 @@ export interface InventoryUpdateInput {
 export interface InventoryPatchInput {
   stockCount?: number;
   isAvailable?: boolean;
+  isAdvertised?: boolean;
 }
 
 export interface WindowCreateInput {
@@ -167,6 +168,7 @@ export function validateInventoryPatchPayload(payload: unknown): ValidationResul
   const candidate = payload as Record<string, unknown>;
   const stockCount = candidate.stockCount;
   const isAvailable = candidate.isAvailable;
+  const isAdvertised = candidate.isAdvertised;
 
   if (stockCount !== undefined && (!isWholeNumber(stockCount) || stockCount < 0)) {
     return { ok: false, error: "stockCount must be 0 or greater" };
@@ -174,12 +176,16 @@ export function validateInventoryPatchPayload(payload: unknown): ValidationResul
   if (isAvailable !== undefined && typeof isAvailable !== "boolean") {
     return { ok: false, error: "isAvailable must be a boolean" };
   }
+  if (isAdvertised !== undefined && typeof isAdvertised !== "boolean") {
+    return { ok: false, error: "isAdvertised must be a boolean" };
+  }
 
   return {
     ok: true,
     value: {
       stockCount: stockCount as number | undefined,
       isAvailable: isAvailable as boolean | undefined,
+      isAdvertised: isAdvertised as boolean | undefined,
     },
   };
 }

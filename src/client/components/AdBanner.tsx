@@ -88,7 +88,7 @@ const GRADIENTS = [
 
 interface AdBannerProps {
   items: MenuItem[];
-  onItemClick: (categoryId: string) => void;
+  onItemClick: (item: MenuItem) => void;
 }
 
 export function AdBanner({ items, onItemClick }: AdBannerProps) {
@@ -97,7 +97,11 @@ export function AdBanner({ items, onItemClick }: AdBannerProps) {
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
 
-  const featured = items.filter((i) => i.isAvailable).slice(0, 4);
+  const advertisedItems = items.filter((i) => i.isAdvertised && i.isAvailable);
+  const featured = (advertisedItems.length > 0
+    ? advertisedItems
+    : items.filter((i) => i.isAvailable)).slice(0, 4);
+  const activeIndex = featured.length > 0 ? current % featured.length : 0;
 
   const next = useCallback(() => {
     if (featured.length <= 1) return;
@@ -126,10 +130,10 @@ export function AdBanner({ items, onItemClick }: AdBannerProps) {
             background: item.imageUrl
               ? `linear-gradient(90deg, rgba(59,34,24,0.85) 0%, rgba(59,34,24,0.4) 100%), url(${item.imageUrl}) center/cover`
               : GRADIENTS[i % GRADIENTS.length],
-            opacity: i === current ? 1 : 0,
-            pointerEvents: i === current ? "auto" : "none",
+            opacity: i === activeIndex ? 1 : 0,
+            pointerEvents: i === activeIndex ? "auto" : "none",
           }}
-          onClick={() => onItemClick(item.categoryId)}
+          onClick={() => onItemClick(item)}
         >
           <div className={styles.textArea}>
             <span className={styles.featured}>{t("adBanner.featured")}</span>
@@ -142,7 +146,7 @@ export function AdBanner({ items, onItemClick }: AdBannerProps) {
             className={styles.cta}
             onClick={(e) => {
               e.stopPropagation();
-              onItemClick(item.categoryId);
+              onItemClick(item);
             }}
           >
             {t("adBanner.orderNow")}
@@ -157,7 +161,7 @@ export function AdBanner({ items, onItemClick }: AdBannerProps) {
               className={styles.dot}
               style={{
                 backgroundColor:
-                  i === current ? "#DDAF6B" : "rgba(255,249,243,0.5)",
+                  i === activeIndex ? "#DDAF6B" : "rgba(255,249,243,0.5)",
               }}
               onClick={(e) => {
                 e.stopPropagation();

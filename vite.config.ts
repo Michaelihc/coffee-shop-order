@@ -14,9 +14,32 @@ async function getConfig() {
     build: {
       outDir: resolve(__dirname, "lib/client"),
       emptyOutDir: true,
+      sourcemap: true,
       rollupOptions: {
         input: {
           main: resolve(__dirname, "src/client/index.html"),
+        },
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) {
+              return undefined;
+            }
+
+            if (id.includes("@fluentui")) {
+              return "fluentui";
+            }
+            if (id.includes("react-router")) {
+              return "router";
+            }
+            if (id.includes("react-i18next") || id.includes("i18next")) {
+              return "i18n";
+            }
+            if (id.includes("@microsoft/teams-js") || id.includes("@azure/msal")) {
+              return "teams";
+            }
+
+            return "vendor";
+          },
         },
       },
     },

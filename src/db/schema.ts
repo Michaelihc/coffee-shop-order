@@ -74,6 +74,7 @@ export function migrateDatabase(db: CompatDatabase): void {
       item_class    TEXT NOT NULL CHECK(item_class IN ('premade', 'made-to-order')),
       stock_count   INTEGER,
       is_available  INTEGER NOT NULL DEFAULT 1,
+      is_advertised INTEGER NOT NULL DEFAULT 0,
       image_url     TEXT,
       sort_order    INTEGER NOT NULL DEFAULT 0
     );
@@ -158,6 +159,10 @@ export function migrateDatabase(db: CompatDatabase): void {
     .prepare<{ name: string }>("PRAGMA table_info(orders)")
     .all();
   const orderColumnNames = new Set(orderColumns.map((column) => column.name));
+  const menuItemColumns = db
+    .prepare<{ name: string }>("PRAGMA table_info(menu_items)")
+    .all();
+  const menuItemColumnNames = new Set(menuItemColumns.map((column) => column.name));
 
   if (!orderColumnNames.has("payment_settled_at")) {
     db.exec("ALTER TABLE orders ADD COLUMN payment_settled_at TEXT");
@@ -170,6 +175,9 @@ export function migrateDatabase(db: CompatDatabase): void {
   }
   if (!orderColumnNames.has("business_date")) {
     db.exec("ALTER TABLE orders ADD COLUMN business_date TEXT");
+  }
+  if (!menuItemColumnNames.has("is_advertised")) {
+    db.exec("ALTER TABLE menu_items ADD COLUMN is_advertised INTEGER NOT NULL DEFAULT 0");
   }
 
   db.exec("CREATE INDEX IF NOT EXISTS idx_orders_business_date ON orders(business_date)");

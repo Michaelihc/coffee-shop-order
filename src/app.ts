@@ -3,7 +3,6 @@ import express from "express";
 import fs from "fs";
 import https from "https";
 import path from "path";
-import send from "send";
 
 import { getDb, initDb } from "./db/connection";
 import { migrateDatabase } from "./db/schema";
@@ -49,7 +48,7 @@ function configureStaticAssets(app: express.Express) {
       return;
     }
 
-    send(req, path.join(__dirname, "views", "hello.html")).pipe(res);
+    res.sendFile(path.join(__dirname, "views", "hello.html"));
   }
 
   app.use("/app/assets", express.static(path.join(clientDir, "assets")));
@@ -60,8 +59,8 @@ function configureStaticAssets(app: express.Express) {
     res.redirect("/app");
   });
 
-  app.get("/", (req, res) => {
-    send(req, path.join(__dirname, "views", "hello.html")).pipe(res);
+  app.get("/", (_req, res) => {
+    res.sendFile(path.join(__dirname, "views", "hello.html"));
   });
 }
 

@@ -170,6 +170,7 @@
   "inventory.type": "类型",
   "inventory.stock": "库存",
   "inventory.available": "可用",
+  "inventory.advertised": "广告展示",
   "inventory.noImg": "无图",
   "inventory.changeImg": "更换图片",
   "inventory.addImg": "添加图片",

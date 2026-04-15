@@ -209,6 +209,21 @@ describe("server routes", () => {
     expect(updated.description).toBeNull();
   });
 
+  it("allows staff to toggle whether an inventory item is advertised", async () => {
+    const response = await request(context.app)
+      .patch("/api/admin/inventory/water")
+      .set(adminHeaders())
+      .send({ isAdvertised: true });
+
+    expect(response.status).toBe(200);
+    expect(response.body.item.isAdvertised).toBe(true);
+
+    const updated = getTestDb()
+      .prepare("SELECT is_advertised FROM menu_items WHERE id = ?")
+      .get("water") as { is_advertised: number };
+    expect(updated.is_advertised).toBe(1);
+  });
+
   it("returns the server business date with admin queue responses", async () => {
     const response = await request(context.app)
       .get("/api/admin/orders")

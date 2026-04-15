@@ -16,6 +16,7 @@ export interface InventoryItemRow {
   item_class: string;
   stock_count: number | null;
   is_available: number;
+  is_advertised: number;
   image_url: string | null;
   sort_order: number;
 }
@@ -69,8 +70,8 @@ export function createInventoryItem(input: InventoryCreateInput): MenuItem {
     .get(input.categoryId) as { m: number | null };
 
   db.prepare(
-    `INSERT INTO menu_items (id, category_id, name, description, price_cents, item_class, stock_count, is_available, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    `INSERT INTO menu_items (id, category_id, name, description, price_cents, item_class, stock_count, is_available, is_advertised, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)`
   ).run(
     input.id,
     input.categoryId,
@@ -154,6 +155,12 @@ export function patchInventoryItem(itemId: string, input: InventoryPatchInput): 
   if (input.isAvailable !== undefined) {
     db.prepare("UPDATE menu_items SET is_available = ? WHERE id = ?").run(
       input.isAvailable ? 1 : 0,
+      itemId
+    );
+  }
+  if (input.isAdvertised !== undefined) {
+    db.prepare("UPDATE menu_items SET is_advertised = ? WHERE id = ?").run(
+      input.isAdvertised ? 1 : 0,
       itemId
     );
   }

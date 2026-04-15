@@ -11,6 +11,7 @@ import { getStudentOrderStatusNotification } from "../../services/notification-c
 import { sendTeamsNotification } from "../../services/teams-notification-service";
 
 const router = Router();
+const STUDENT_ORDERS_PATH = "/orders";
 
 function notifyStudentOrderUpdate(
   order: Order,
@@ -24,6 +25,7 @@ function notifyStudentOrderUpdate(
     userId: order.studentAadId,
     title: content.title,
     body: content.body,
+    targetPath: STUDENT_ORDERS_PATH,
   }).catch((error) => {
     console.error("[Queue] Failed to send student Teams notification:", error);
   });

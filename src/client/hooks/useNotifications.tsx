@@ -33,6 +33,7 @@ export interface AppNotification {
   titleKey: string;
   bodyKey: string;
   bodyParams?: Record<string, string | number>;
+  targetPath?: string;
   timestamp: number;
   read: boolean;
 }
@@ -104,11 +105,40 @@ function savePrefs(p: NotificationPrefs) {
 /*  Browser Notification helper                                        */
 /* ------------------------------------------------------------------ */
 
-function fireBrowserNotification(title: string, body: string) {
+function buildAppUrl(targetPath: string): string {
+  return new URL(`/app${targetPath}`, window.location.origin).toString();
+}
+
+function getNotificationTargetPath(type: NotificationType): string | undefined {
+  if (
+    type === "order_confirmed" ||
+    type === "order_preparing" ||
+    type === "order_ready" ||
+    type === "order_cancelled" ||
+    type === "window_ending_soon"
+  ) {
+    return "/orders";
+  }
+
+  return undefined;
+}
+
+function fireBrowserNotification(title: string, body: string, targetPath?: string) {
   if (typeof Notification === "undefined") return;
   if (Notification.permission !== "granted") return;
   try {
-    new Notification(title, { body, icon: "/static/images/logo.png" });
+    const notification = new Notification(title, {
+      body,
+      icon: "/static/images/logo.png",
+    });
+
+    if (targetPath) {
+      notification.onclick = () => {
+        window.focus();
+        window.location.assign(buildAppUrl(targetPath));
+        notification.close();
+      };
+    }
   } catch {
     // Notification API may not be available in Teams iframe
   }
@@ -118,7 +148,11 @@ function fireBrowserNotification(title: string, body: string) {
 /*  Teams Activity Feed Notification helper                            */
 /* ------------------------------------------------------------------ */
 
-async function sendTeamsNotification(title: string, body: string) {
+async function sendTeamsNotification(
+  title: string,
+  body: string,
+  targetPath?: string,
+) {
   try {
     await app.getContext();
 
@@ -128,7 +162,7 @@ async function sendTeamsNotification(title: string, body: string) {
         "X-Teams-User-Locale":
           localStorage.getItem(LANGUAGE_STORAGE_KEY) || i18n.language || "",
       }),
-      body: JSON.stringify({ title, body }),
+      body: JSON.stringify({ title, body, targetPath }),
     });
     await response.json().catch(() => null);
   } catch (err) {
@@ -244,6 +278,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         titleKey,
         bodyKey,
         bodyParams,
+        targetPath: getNotificationTargetPath(type),
         timestamp: Date.now(),
         read: false,
       };
@@ -254,12 +289,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       const title = i18n.t(titleKey);
       const body = i18n.t(bodyKey, bodyParams);
       if (options?.sendToTeams === true) {
-        void sendTeamsNotification(title, body);
+        void sendTeamsNotification(title, body, notif.targetPath);
       }
 
       // Browser notification
       if (p.browserNotifications) {
-        fireBrowserNotification(title, body);
+        fireBrowserNotification(title, body, notif.targetPath);
       }
     },
     [],
