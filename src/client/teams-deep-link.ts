@@ -94,3 +94,21 @@ export function resolveTeamsSubPagePath(
 
   return null;
 }
+
+export function getTeamsDeepLinkNavigationDecision(
+  targetPath: string | null,
+  currentPath: string,
+  hasHandledDeepLink: boolean
+): { shouldConsume: boolean; navigateTo: string | null } {
+  if (!targetPath || hasHandledDeepLink) {
+    return {
+      shouldConsume: false,
+      navigateTo: null,
+    };
+  }
+
+  return {
+    shouldConsume: true,
+    navigateTo: currentPath === targetPath ? null : targetPath,
+  };
+}

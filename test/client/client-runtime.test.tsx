@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { usePoller } from "../../src/client/hooks/usePoller";
 import {
+  getTeamsDeepLinkNavigationDecision,
   getTeamsDeepLinkSubPageId,
   resolveTeamsSubPagePath,
 } from "../../src/client/teams-deep-link";
@@ -78,6 +79,29 @@ describe("client runtime helpers", () => {
 
     expect(resolveTeamsSubPagePath("orders", false)).toBe("/orders");
     expect(resolveTeamsSubPagePath("orders", true)).toBeNull();
+  });
+
+  it("consumes a Teams deep link only once so later navigation is not overridden", () => {
+    expect(
+      getTeamsDeepLinkNavigationDecision("/orders", "/orders", false)
+    ).toEqual({
+      shouldConsume: true,
+      navigateTo: null,
+    });
+
+    expect(
+      getTeamsDeepLinkNavigationDecision("/orders", "/", true)
+    ).toEqual({
+      shouldConsume: false,
+      navigateTo: null,
+    });
+
+    expect(
+      getTeamsDeepLinkNavigationDecision("/orders", "/", false)
+    ).toEqual({
+      shouldConsume: true,
+      navigateTo: "/orders",
+    });
   });
 
   it("does not start another poll while the previous one is still running", async () => {

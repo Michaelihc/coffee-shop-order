@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { Spinner, makeStyles, tokens } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import { CartProvider } from "./hooks/useCart";
 import { NotificationProvider } from "./hooks/useNotifications";
 import { useTeamsContext } from "./hooks/useTeamsContext";
 import {
+  getTeamsDeepLinkNavigationDecision,
   getTeamsDeepLinkSubPageId,
   resolveTeamsSubPagePath,
 } from "./teams-deep-link";
@@ -103,17 +104,28 @@ function TeamsDeepLinkNavigator({ isStaff }: { isStaff: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { context } = useTeamsContext();
+  const hasHandledDeepLinkRef = useRef(false);
   const targetPath = resolveTeamsSubPagePath(
     getTeamsDeepLinkSubPageId(context, location.search),
     isStaff
   );
 
   useEffect(() => {
-    if (!targetPath || location.pathname === targetPath) {
+    const { shouldConsume, navigateTo } = getTeamsDeepLinkNavigationDecision(
+      targetPath,
+      location.pathname,
+      hasHandledDeepLinkRef.current
+    );
+
+    if (!shouldConsume) {
       return;
     }
 
-    navigate(targetPath, { replace: true });
+    hasHandledDeepLinkRef.current = true;
+
+    if (navigateTo) {
+      navigate(navigateTo, { replace: true });
+    }
   }, [location.pathname, navigate, targetPath]);
 
   return null;
