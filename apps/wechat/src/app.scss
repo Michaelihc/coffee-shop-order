@@ -1,0 +1,112 @@
+page {
+  background: #f6f0e7;
+  color: #38220f;
+  font-family: sans-serif;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.section-title {
+  font-size: 34px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.chip {
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: #eadcc8;
+  color: #5c4330;
+  font-size: 26px;
+}
+
+.chip--active {
+  background: #8b5e3c;
+  color: #fff;
+}
+
+.card {
+  background: #fff9f0;
+  border: 1px solid #dec8a8;
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 30px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: #7c6a5c;
+  font-size: 24px;
+}
+
+.primary-button {
+  background: #8b5e3c;
+  color: #fff;
+  border-radius: 16px;
+  padding: 18px 20px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.input {
+  background: #fff;
+  border: 1px solid #dec8a8;
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 12px;
+  font-size: 28px;
+  box-sizing: border-box;
+}
+
+.error-box {
+  background: #fff1f3;
+  color: #b42318;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  font-size: 26px;
+}
+
+.total {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 20px 0;
+}
+
+.inline-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.quantity-box {
+  min-width: 40px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.qr-image {
+  width: 360px;
+  height: 360px;
+  margin: 16px auto 0;
+  display: block;
+}

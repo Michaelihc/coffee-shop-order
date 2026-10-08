@@ -125,6 +125,23 @@ function formatPrice(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
+function getPaymentMethodLabel(t: (key: string) => string, order: Order): string {
+  switch (order.paymentMethod) {
+    case "student-card":
+      return t("order.studentCard");
+    case "pay-at-collect":
+      return t("order.payAtCounter");
+    case "cash-at-counter":
+      return t("order.cashAtCounter");
+    case "wechat-pay":
+      return order.paymentStatus === "paid"
+        ? t("order.wechatPay")
+        : t("order.wechatPayPending");
+    default:
+      return order.paymentMethod;
+  }
+}
+
 function getCancelReasonLabel(
   t: (key: string) => string,
   reason: CancelReason | null,
@@ -166,6 +183,9 @@ export function OrderCard({ order, showStepper = true, showStudent = false, acti
       {showStudent && (
         <div style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground2 }}>
           {t("order.orderedBy")} <strong>{order.studentName}</strong>
+          {order.customerType === "guest" && order.guestPhone ? (
+            <> · {t("order.guestPhone", { phone: order.guestPhone })}</>
+          ) : null}
         </div>
       )}
 
@@ -210,7 +230,7 @@ export function OrderCard({ order, showStepper = true, showStudent = false, acti
 
       <div className={styles.meta}>
         <span>{formatPrice(order.totalCents)}</span>
-        <span>{order.paymentMethod === "pay-at-collect" ? t("order.payAtCounter") : t("order.studentCard")}</span>
+        <span>{getPaymentMethodLabel(t, order)}</span>
       </div>
 
       {order.status === "cancelled" && (

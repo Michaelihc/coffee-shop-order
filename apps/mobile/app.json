@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Coffee Shop Mobile",
+    "slug": "coffee-shop-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {},
+    "extra": {
+      "apiBaseUrl": "http://127.0.0.1:53000"
+    }
+  }
+}

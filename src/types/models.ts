@@ -1,5 +1,11 @@
 export type ItemClass = "premade" | "made-to-order";
-export type PaymentMethod = "student-card" | "pay-at-collect";
+export type PaymentMethod =
+  | "student-card"
+  | "pay-at-collect"
+  | "cash-at-counter"
+  | "wechat-pay";
+export type CustomerType = "student" | "guest";
+export type PaymentStatus = "paid" | "pending" | "unpaid" | "refunded";
 export type CancelReason = "out-of-stock" | "over-capacity" | "other";
 export type OrderStatus =
   | "confirmed"
@@ -47,8 +53,11 @@ export interface Order {
   id: string;
   studentAadId: string;
   studentName: string;
+  customerType: CustomerType;
+  guestPhone: string | null;
   pickupWindowId: string;
   paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
   status: OrderStatus;
   pickupCode: string | null;
   gridSlot: string | null;

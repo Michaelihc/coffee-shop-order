@@ -6,8 +6,11 @@ interface OrderRow {
   id: string;
   student_aad_id: string;
   student_name: string;
+  customer_type: string;
+  guest_phone: string | null;
   pickup_window_id: string;
   payment_method: string;
+  payment_status: string;
   status: string;
   pickup_code: string | null;
   grid_slot: string | null;
@@ -39,8 +42,11 @@ function rowToOrder(row: OrderRow): Order {
     id: row.id,
     studentAadId: row.student_aad_id,
     studentName: row.student_name,
+    customerType: row.customer_type === "guest" ? "guest" : "student",
+    guestPhone: row.guest_phone,
     pickupWindowId: row.pickup_window_id,
     paymentMethod: row.payment_method as Order["paymentMethod"],
+    paymentStatus: row.payment_status as Order["paymentStatus"],
     status: row.status as OrderStatus,
     pickupCode: row.pickup_code,
     gridSlot: row.grid_slot,
@@ -112,6 +118,26 @@ export function getOrderById(orderId: string): Order | null {
   }
 
   return attachOrderItems([row])[0] ?? null;
+}
+
+export function markOrderPaymentSettled(
+  orderId: string,
+  transactionRef: string,
+  settledAt: string
+): boolean {
+  const db = getDb();
+  const result = db
+    .prepare(
+      `UPDATE orders
+       SET payment_status = 'paid',
+           payment_ref = ?,
+           payment_settled_at = ?,
+           updated_at = ?
+       WHERE id = ? AND payment_method = 'wechat-pay'`
+    )
+    .run(transactionRef, settledAt, settledAt, orderId);
+
+  return result.changes > 0;
 }
 
 export function getStudentOrders(studentId: string, options?: { allTime?: boolean }): Order[] {

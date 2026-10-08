@@ -1,0 +1,34 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Expo guest ordering client for Coffee Shop",
+  "main": "expo/AppEntry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "validate": "npm run typecheck"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@coffee-shop/portable": "file:../../packages/portable",
+    "@react-native-async-storage/async-storage": "^3.0.2",
+    "expo": "^55.0.17",
+    "expo-constants": "^55.0.15",
+    "expo-status-bar": "^55.0.5",
+    "react": "^19.2.5",
+    "react-native": "^0.85.2",
+    "react-native-qrcode-svg": "^6.3.21",
+    "react-native-webview": "^13.16.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "typescript": "^5.9.3"
+  }
+}

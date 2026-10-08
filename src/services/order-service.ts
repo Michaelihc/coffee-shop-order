@@ -18,9 +18,16 @@ import {
 import { getSettingInt } from "./settings-service";
 import { logError, logInfo, logWarn } from "./logger";
 import type { CancelReason, Order, OrderStatus } from "../types/models";
-import type { CreateOrderRequest } from "../types/api";
+import type {
+  CreateGuestOrderRequest,
+  CreateOrderRequest,
+  WechatPaymentInstructions,
+  WechatPayPresentation,
+} from "../types/api";
 import { getOrderById } from "./order-repository";
 import type { PaymentResult } from "./payment";
+import { createWechatPayment } from "./wechat-pay-service";
+import { maskPhone, normalizePhone } from "./guest-auth-service";
 
 interface ResolvedOrderItem {
   menuItemId: string;
@@ -42,6 +49,8 @@ class OrderCreationFailure extends Error {
 
 const PICKUP_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const CANCEL_REASONS = new Set<CancelReason>(["out-of-stock", "over-capacity", "other"]);
+const STUDENT_PAYMENT_METHODS = new Set(["student-card", "pay-at-collect"]);
+const GUEST_PAYMENT_METHODS = new Set(["cash-at-counter", "wechat-pay"]);
 
 function generatePickupCode(): string {
   let code = "";
@@ -52,7 +61,8 @@ function generatePickupCode(): string {
 }
 
 function validateCreateOrderRequest(
-  input: unknown
+  input: unknown,
+  allowedPaymentMethods: Set<string> = STUDENT_PAYMENT_METHODS
 ): { ok: true; value: CreateOrderRequest } | { ok: false; error: string } {
   if (!input || typeof input !== "object") {
     return { ok: false, error: "Invalid order payload" };
@@ -62,10 +72,7 @@ function validateCreateOrderRequest(
   if (!req.pickupWindowId || typeof req.pickupWindowId !== "string") {
     return { ok: false, error: "pickupWindowId is required" };
   }
-  if (
-    req.paymentMethod !== "student-card" &&
-    req.paymentMethod !== "pay-at-collect"
-  ) {
+  if (!req.paymentMethod || !allowedPaymentMethods.has(req.paymentMethod)) {
     return { ok: false, error: "paymentMethod is invalid" };
   }
   if (!Array.isArray(req.items) || req.items.length === 0) {
@@ -107,6 +114,26 @@ function validateCreateOrderRequest(
       notes: req.notes?.trim() || undefined,
     },
   };
+}
+
+function validateGuestDetails(
+  input: unknown,
+  verifiedPhone?: string
+): { ok: true; guest: { name: string; phone: string } } | { ok: false; error: string } {
+  const req = input as Partial<CreateGuestOrderRequest>;
+  const normalizedPhone = verifiedPhone
+    ? normalizePhone(verifiedPhone)
+    : normalizePhone(req.guest?.phone?.trim() || "");
+  const name = verifiedPhone ? maskPhone(verifiedPhone) : req.guest?.name?.trim();
+
+  if (!name) {
+    return { ok: false, error: "Guest identity is required" };
+  }
+  if (!normalizedPhone) {
+    return { ok: false, error: "Verify your phone number before placing an order." };
+  }
+
+  return { ok: true, guest: { name, phone: normalizedPhone } };
 }
 
 function formatCurrency(cents: number): string {
@@ -337,11 +364,68 @@ export async function createOrder(
   studentName: string,
   input: CreateOrderRequest | unknown
 ): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
+  const result = await createOrderForCustomer({
+    customerId: studentId,
+    customerName: studentName,
+    customerType: "student",
+    input,
+    allowedPaymentMethods: STUDENT_PAYMENT_METHODS,
+  });
+
+  return result.ok ? { ok: true, order: result.order } : result;
+}
+
+export async function createGuestOrder(
+  input: CreateGuestOrderRequest | unknown,
+  options?: {
+    verifiedPhone?: string;
+    wechatPayPresentation?: WechatPayPresentation;
+    clientIp?: string;
+    openid?: string;
+  }
+): Promise<
+  | { ok: true; order: Order; payment?: WechatPaymentInstructions }
+  | { ok: false; error: string }
+> {
+  const guestValidation = validateGuestDetails(input, options?.verifiedPhone);
+  if (guestValidation.ok === false) {
+    return { ok: false, error: guestValidation.error };
+  }
+
+  const { guest } = guestValidation;
+  return createOrderForCustomer({
+    customerId: `guest:${guest.phone}`,
+    customerName: guest.name,
+    customerType: "guest",
+    guestPhone: guest.phone,
+    input,
+    allowedPaymentMethods: GUEST_PAYMENT_METHODS,
+    wechatPayPresentation: options?.wechatPayPresentation,
+    clientIp: options?.clientIp,
+    openid: options?.openid,
+  });
+}
+
+async function createOrderForCustomer(input: {
+  customerId: string;
+  customerName: string;
+  customerType: "student" | "guest";
+  guestPhone?: string;
+  input: CreateOrderRequest | unknown;
+  allowedPaymentMethods: Set<string>;
+  wechatPayPresentation?: WechatPayPresentation;
+  clientIp?: string;
+  openid?: string;
+}): Promise<
+  | { ok: true; order: Order; payment?: WechatPaymentInstructions }
+  | { ok: false; error: string }
+> {
   let stage = "validate-request";
   let paymentResult: PaymentResult | null = null;
   let handledChargeException = false;
+  let paymentInstructions: WechatPaymentInstructions | undefined;
 
-  const validation = validateCreateOrderRequest(input);
+  const validation = validateCreateOrderRequest(input.input, input.allowedPaymentMethods);
   if (validation.ok === false) {
     return { ok: false, error: validation.error };
   }
@@ -356,7 +440,8 @@ export async function createOrder(
   const createdAt = toSqlTimestamp(orderCreatedAt);
   const businessDate = getBusinessDate(orderCreatedAt);
   logInfo("order.create.start", {
-    studentId,
+    studentId: input.customerId,
+    customerType: input.customerType,
     pickupWindowId: req.pickupWindowId,
     paymentMethod: req.paymentMethod,
     itemCount: req.items.length,
@@ -364,11 +449,11 @@ export async function createOrder(
   });
 
   stage = "validate-limits";
-  const preChargeLimitCheck = validateOrderLimits(studentId, resolved.items, businessDate);
+  const preChargeLimitCheck = validateOrderLimits(input.customerId, resolved.items, businessDate);
   if (preChargeLimitCheck.ok === false) {
     logWarn("order.create.rejected", {
       stage,
-      studentId,
+      studentId: input.customerId,
       businessDate,
       reason: preChargeLimitCheck.error,
     });
@@ -384,7 +469,7 @@ export async function createOrder(
   if (!initialWindowCheck.ok) {
     logWarn("order.create.rejected", {
       stage,
-      studentId,
+      studentId: input.customerId,
       businessDate,
       reason: initialWindowCheck.reason,
     });
@@ -394,60 +479,87 @@ export async function createOrder(
   stage = "allocate-order-id";
   const orderId = allocateNextOrderId(businessDate);
   const payment = getPaymentProvider();
+  const requiresStoredValueCharge = req.paymentMethod === "student-card";
   logInfo("order.create.order_id_allocated", {
     orderId,
     businessDate,
     paymentMode: payment.mode ?? "live",
   });
 
-  const pendingIncidentId = createPaymentReconciliationIncident({
-    orderId,
-    transactionRef: orderId,
-    amountCents: preChargeLimitCheck.totalCents,
-    incidentType: "order_create_payment_inflight",
-    details: [
-      `studentId=${studentId}`,
-      `paymentMethod=${req.paymentMethod}`,
-      `businessDate=${businessDate}`,
-      `paymentMode=${payment.mode ?? "live"}`,
-    ].join("; "),
-  });
-
-  stage = "charge";
-  try {
-    paymentResult = await payment.charge({
-      studentId,
-      studentName,
-      amountCents: preChargeLimitCheck.totalCents,
-      orderId,
-      method: req.paymentMethod,
-    });
-  } catch (error) {
-    handledChargeException = true;
-    if (payment.mode === "stub") {
-      deletePaymentReconciliationIncident(pendingIncidentId);
-    } else {
-      updatePaymentReconciliationIncident(pendingIncidentId, {
+  const pendingIncidentId = requiresStoredValueCharge
+    ? createPaymentReconciliationIncident({
         orderId,
+        transactionRef: orderId,
         amountCents: preChargeLimitCheck.totalCents,
-        incidentType: "order_create_charge_failed",
+        incidentType: "order_create_payment_inflight",
         details: [
-          `studentId=${studentId}`,
+          `studentId=${input.customerId}`,
           `paymentMethod=${req.paymentMethod}`,
           `businessDate=${businessDate}`,
           `paymentMode=${payment.mode ?? "live"}`,
-          `charge error: ${getErrorMessage(error)}`,
         ].join("; "),
+      })
+    : null;
+
+  stage = "charge";
+  if (requiresStoredValueCharge) {
+    try {
+      paymentResult = await payment.charge({
+        studentId: input.customerId,
+        studentName: input.customerName,
+        amountCents: preChargeLimitCheck.totalCents,
+        orderId,
+        method: req.paymentMethod,
       });
-    }
-    logError("order.create.charge_exception", {
-      orderId,
-      studentId,
-      paymentMethod: req.paymentMethod,
-      paymentMode: payment.mode ?? "live",
+    } catch (error) {
+      handledChargeException = true;
+      if (payment.mode === "stub" && pendingIncidentId !== null) {
+        deletePaymentReconciliationIncident(pendingIncidentId);
+      } else if (pendingIncidentId !== null) {
+        updatePaymentReconciliationIncident(pendingIncidentId, {
+          orderId,
+          amountCents: preChargeLimitCheck.totalCents,
+          incidentType: "order_create_charge_failed",
+          details: [
+            `studentId=${input.customerId}`,
+            `paymentMethod=${req.paymentMethod}`,
+            `businessDate=${businessDate}`,
+            `paymentMode=${payment.mode ?? "live"}`,
+            `charge error: ${getErrorMessage(error)}`,
+          ].join("; "),
+        });
+      }
+      logError("order.create.charge_exception", {
+        orderId,
+        studentId: input.customerId,
+        paymentMethod: req.paymentMethod,
+        paymentMode: payment.mode ?? "live",
         amountCents: preChargeLimitCheck.totalCents,
         error,
       });
+    }
+  } else if (req.paymentMethod === "wechat-pay") {
+    try {
+      paymentInstructions = await createWechatPayment({
+        orderId,
+        description: `Coffee Shop Order ${orderId}`,
+        amountCents: preChargeLimitCheck.totalCents,
+        presentation: input.wechatPayPresentation ?? "auto",
+        clientIp: input.clientIp,
+        openid: input.openid,
+      });
+      paymentResult = { ok: true, transactionRef: `WECHAT-PENDING-${orderId}` };
+    } catch (error) {
+      logError("order.create.wechat_payment_failed", {
+        orderId,
+        customerId: input.customerId,
+        amountCents: preChargeLimitCheck.totalCents,
+        error,
+      });
+      return { ok: false, error: "WeChat Pay could not be started. Please try again." };
+    }
+  } else {
+    paymentResult = { ok: true, transactionRef: `DEFERRED-${orderId}` };
   }
 
   if (handledChargeException) {
@@ -461,10 +573,12 @@ export async function createOrder(
   }
 
   if (!paymentResult || paymentResult.ok === false) {
-    deletePaymentReconciliationIncident(pendingIncidentId);
+    if (pendingIncidentId !== null) {
+      deletePaymentReconciliationIncident(pendingIncidentId);
+    }
     logWarn("order.create.payment_failed", {
       orderId,
-      studentId,
+      studentId: input.customerId,
       paymentMethod: req.paymentMethod,
       paymentMode: payment.mode ?? "live",
       reason: paymentResult?.ok === false ? paymentResult.reason : "unknown",
@@ -480,7 +594,7 @@ export async function createOrder(
 
   logInfo("order.create.payment_succeeded", {
     orderId,
-    studentId,
+    studentId: input.customerId,
     paymentMethod: req.paymentMethod,
     paymentMode: payment.mode ?? "live",
     transactionRef: paymentResult.transactionRef,
@@ -489,22 +603,24 @@ export async function createOrder(
 
   try {
     stage = "record-payment";
-    updatePaymentReconciliationIncident(pendingIncidentId, {
-      transactionRef: paymentResult.transactionRef,
-      incidentType: "order_create_persist_pending",
-      details: [
-        `studentId=${studentId}`,
-        `paymentMethod=${req.paymentMethod}`,
-        `businessDate=${businessDate}`,
-        `paymentMode=${payment.mode ?? "live"}`,
-        `transactionRef=${paymentResult.transactionRef}`,
-      ].join("; "),
-    });
+    if (pendingIncidentId !== null) {
+      updatePaymentReconciliationIncident(pendingIncidentId, {
+        transactionRef: paymentResult.transactionRef,
+        incidentType: "order_create_persist_pending",
+        details: [
+          `studentId=${input.customerId}`,
+          `paymentMethod=${req.paymentMethod}`,
+          `businessDate=${businessDate}`,
+          `paymentMode=${payment.mode ?? "live"}`,
+          `transactionRef=${paymentResult.transactionRef}`,
+        ].join("; "),
+      });
+    }
 
     const db = getDb();
     stage = "persist";
     db.transaction(() => {
-      const limitCheck = validateOrderLimits(studentId, resolved.items, businessDate);
+      const limitCheck = validateOrderLimits(input.customerId, resolved.items, businessDate);
       if (limitCheck.ok === false) {
         throw new OrderCreationFailure(limitCheck.error);
       }
@@ -530,14 +646,23 @@ export async function createOrder(
 
       const paymentSettledAt =
         req.paymentMethod === "student-card" ? createdAt : null;
+      const paymentStatus =
+        req.paymentMethod === "student-card"
+          ? "paid"
+          : req.paymentMethod === "wechat-pay"
+          ? "pending"
+          : "unpaid";
 
       db.prepare(
         `INSERT INTO orders (
           id,
           student_aad_id,
           student_name,
+          customer_type,
+          guest_phone,
           pickup_window_id,
           payment_method,
+          payment_status,
           status,
           total_cents,
           payment_ref,
@@ -546,13 +671,16 @@ export async function createOrder(
           created_at,
           updated_at,
           notes
-        ) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         orderId,
-        studentId,
-        studentName,
+        input.customerId,
+        input.customerName,
+        input.customerType,
+        input.guestPhone || null,
         req.pickupWindowId,
         req.paymentMethod,
+        paymentStatus,
         preChargeLimitCheck.totalCents,
         paymentResult.transactionRef,
         paymentSettledAt,
@@ -574,7 +702,7 @@ export async function createOrder(
     logError("order.create.persist_failed", {
       stage,
       orderId,
-      studentId,
+      studentId: input.customerId,
       businessDate,
       paymentMethod: req.paymentMethod,
       paymentMode: payment.mode ?? "live",
@@ -582,33 +710,40 @@ export async function createOrder(
       amountCents: preChargeLimitCheck.totalCents,
       error,
     });
-    const errorMessage = await refundOrRecordIncident({
-      pendingIncidentId,
-      orderId,
-      transactionRef: paymentResult.transactionRef,
-      amountCents: preChargeLimitCheck.totalCents,
-      userMessage:
-        error instanceof OrderCreationFailure
+    const errorMessage =
+      pendingIncidentId === null
+        ? error instanceof OrderCreationFailure
           ? error.userMessage
-          : "Failed to create order after payment; a refund is being processed.",
-      failure: error,
-      paymentMode: payment.mode,
-    });
+          : "Failed to create order. Please try again."
+        : await refundOrRecordIncident({
+            pendingIncidentId,
+            orderId,
+            transactionRef: paymentResult.transactionRef,
+            amountCents: preChargeLimitCheck.totalCents,
+            userMessage:
+              error instanceof OrderCreationFailure
+                ? error.userMessage
+                : "Failed to create order after payment; a refund is being processed.",
+            failure: error,
+            paymentMode: payment.mode,
+          });
 
     return { ok: false, error: errorMessage };
   }
 
-  deletePaymentReconciliationIncident(pendingIncidentId);
+  if (pendingIncidentId !== null) {
+    deletePaymentReconciliationIncident(pendingIncidentId);
+  }
   const order = getOrderById(orderId)!;
   logInfo("order.create.success", {
     orderId,
-    studentId,
+    studentId: input.customerId,
     businessDate,
     paymentMethod: req.paymentMethod,
     paymentMode: payment.mode ?? "live",
     totalCents: order.totalCents,
   });
-  return { ok: true, order };
+  return paymentInstructions ? { ok: true, order, payment: paymentInstructions } : { ok: true, order };
 }
 const VALID_TRANSITIONS: Record<string, string[]> = {
   confirmed: ["preparing", "cancelled"],
@@ -630,6 +765,13 @@ export async function updateOrderStatus(
     return {
       ok: false,
       error: `Cannot transition from ${order.status} to ${newStatus}`,
+    };
+  }
+
+  if (order.paymentStatus === "pending" && newStatus !== "cancelled") {
+    return {
+      ok: false,
+      error: "Payment is still pending",
     };
   }
 

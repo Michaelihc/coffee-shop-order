@@ -11,6 +11,7 @@ import {
   resolveTeamsSubPagePath,
 } from "../../src/client/teams-deep-link";
 import { getTokenExpiryTimestamp, isTokenUsable } from "../../src/client/teams-auth";
+import { TeamsContextProvider, useTeamsContext } from "../../src/client/hooks/useTeamsContext";
 
 function createTestJwt(expSeconds: number): string {
   const encode = (value: unknown) =>
@@ -79,6 +80,30 @@ describe("client runtime helpers", () => {
 
     expect(resolveTeamsSubPagePath("orders", false)).toBe("/orders");
     expect(resolveTeamsSubPagePath("orders", true)).toBeNull();
+  });
+
+  it("defaults outside-Teams context to a guest user", async () => {
+    let renderedUser: ReturnType<typeof useTeamsContext>["user"] | null = null;
+
+    function TestComponent() {
+      renderedUser = useTeamsContext().user;
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <TeamsContextProvider context={null}>
+          <TestComponent />
+        </TeamsContextProvider>
+      );
+      await Promise.resolve();
+    });
+
+    expect(renderedUser).toEqual({ userId: "", userName: "Guest" });
   });
 
   it("consumes a Teams deep link only once so later navigation is not overridden", () => {

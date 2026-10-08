@@ -119,8 +119,8 @@ function ThemedApp({
 async function init() {
   let teamsContext: app.Context | null = null;
   let useLocalHeaderFallback = false;
-  let fallbackUserId = "dev-user";
-  let fallbackUserName = "Dev Student";
+  let fallbackUserId = "";
+  let fallbackUserName = "";
 
   try {
     await app.initialize();
@@ -161,14 +161,17 @@ async function init() {
       "Auth debug",
       `teams initialization failed ${error instanceof Error ? error.message : String(error)}`
     );
-    // Running outside Teams — use defaults for dev
-    useLocalHeaderFallback = true;
+    // Running outside Teams should behave like an unauthenticated guest.
   }
 
   if (useLocalHeaderFallback) {
     setAccessTokenProvider(null);
     cachedAccessToken = undefined;
     setUserHeaders(fallbackUserId, fallbackUserName);
+  } else if (!teamsContext) {
+    setAccessTokenProvider(null);
+    cachedAccessToken = undefined;
+    clearUserHeaders();
   }
 
   await initI18n(teamsContext?.app?.locale);

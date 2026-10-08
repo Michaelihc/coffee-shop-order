@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createTestApp, getTestDb, adminHeaders, type TestAppContext } from "../helpers/test-app";
 import { getCurrentBusinessDate } from "../../src/services/business-time-service";
+import { createGuestSession } from "../../src/services/guest-auth-service";
 
 describe("server routes", () => {
   let context: TestAppContext;
@@ -233,5 +234,113 @@ describe("server routes", () => {
     expect(response.body.businessDate).toBe(getCurrentBusinessDate());
     expect(response.body).toHaveProperty("orders");
     expect(response.body).toHaveProperty("counts");
+  });
+
+  it("creates guest cash orders with a verified guest session", async () => {
+    const guestSession = createGuestSession("13800138000");
+    const response = await request(context.app)
+      .post("/api/guest/orders")
+      .set("X-Guest-Session", guestSession.token)
+      .send({
+        guest: { phone: "13800138000" },
+        pickupWindowId: "mid-break",
+        paymentMethod: "cash-at-counter",
+        items: [{ menuItemId: "water", quantity: 1 }],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.order.customerType).toBe("guest");
+    expect(response.body.order.guestPhone).toBe("13800138000");
+    expect(response.body.order.paymentStatus).toBe("unpaid");
+  });
+
+  it("rejects guest orders without a verified guest session", async () => {
+    const response = await request(context.app)
+      .post("/api/guest/orders")
+      .send({
+        guest: { phone: "13800138000" },
+        pickupWindowId: "mid-break",
+        paymentMethod: "cash-at-counter",
+        items: [{ menuItemId: "water", quantity: 1 }],
+      });
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      error: "Verify your phone number before placing an order.",
+    });
+  });
+
+  it("returns masked verified guest identity for guest sessions", async () => {
+    const guestSession = createGuestSession("15312345678");
+
+    const response = await request(context.app)
+      .get("/api/me")
+      .set("X-Guest-Session", guestSession.token);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      role: "student",
+      displayName: "(153 ****)",
+      userId: "",
+    });
+
+    const guest = getTestDb()
+      .prepare("SELECT phone, masked_phone FROM guest_users WHERE phone = ?")
+      .get("15312345678") as { phone: string; masked_phone: string };
+    expect(guest).toEqual({ phone: "15312345678", masked_phone: "(153 ****)" });
+  });
+
+  it("starts guest WeChat pay with QR instructions in local stub mode", async () => {
+    const guestSession = createGuestSession("13800138001");
+    const response = await request(context.app)
+      .post("/api/guest/orders")
+      .set("X-Guest-Session", guestSession.token)
+      .send({
+        guest: { phone: "13800138001" },
+        pickupWindowId: "mid-break",
+        paymentMethod: "wechat-pay",
+        wechatPayPresentation: "qr",
+        items: [{ menuItemId: "water", quantity: 1 }],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.order.paymentStatus).toBe("pending");
+    expect(response.body.payment).toEqual({
+      kind: "qr",
+      codeUrl: expect.stringContaining("weixin://wxpay"),
+    });
+  });
+
+  it("settles a pending WeChat guest order from the notify endpoint", async () => {
+    const guestSession = createGuestSession("13800138002");
+    const createResponse = await request(context.app)
+      .post("/api/guest/orders")
+      .set("X-Guest-Session", guestSession.token)
+      .send({
+        guest: { phone: "13800138002" },
+        pickupWindowId: "mid-break",
+        paymentMethod: "wechat-pay",
+        wechatPayPresentation: "qr",
+        items: [{ menuItemId: "water", quantity: 2 }],
+      });
+
+    expect(createResponse.status).toBe(201);
+
+    const notifyResponse = await request(context.app)
+      .post("/api/payments/wechat/notify")
+      .send({
+        orderId: createResponse.body.order.id,
+        transactionRef: "wechat-tx-123",
+        amountCents: createResponse.body.order.totalCents,
+        tradeState: "SUCCESS",
+      });
+
+    expect(notifyResponse.status).toBe(200);
+
+    const statusResponse = await request(context.app)
+      .get(`/api/payments/wechat/orders/${createResponse.body.order.id}/status`);
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.paymentStatus).toBe("paid");
   });
 });

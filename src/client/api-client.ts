@@ -2,6 +2,7 @@ import { pushAuthDebug } from "./auth-debug";
 
 const USER_HEADERS: Record<string, string> = {};
 const LANGUAGE_STORAGE_KEY = "coffee-shop-lang";
+const GUEST_SESSION_STORAGE_KEY = "coffee-shop-guest-session";
 let accessTokenProvider: (() => Promise<string | undefined>) | null = null;
 
 export function setUserHeaders(userId: string, userName: string) {
@@ -32,6 +33,21 @@ function getLocaleHeader() {
   );
 }
 
+export function getGuestSessionToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return localStorage.getItem(GUEST_SESSION_STORAGE_KEY) || "";
+}
+
+export function setGuestSessionToken(token: string) {
+  localStorage.setItem(GUEST_SESSION_STORAGE_KEY, token);
+}
+
+export function clearGuestSessionToken() {
+  localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+}
+
 export async function getRequestHeaders(
   extraHeaders: Record<string, string> = {},
   options?: { includeJsonContentType?: boolean }
@@ -41,6 +57,10 @@ export async function getRequestHeaders(
     "X-Teams-User-Locale": getLocaleHeader(),
     ...extraHeaders,
   };
+  const guestSessionToken = getGuestSessionToken();
+  if (guestSessionToken && !headers["X-Guest-Session"]) {
+    headers["X-Guest-Session"] = guestSessionToken;
+  }
 
   if (options?.includeJsonContentType !== false) {
     headers["Content-Type"] = "application/json";

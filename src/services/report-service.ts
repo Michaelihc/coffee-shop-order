@@ -27,7 +27,7 @@ export function getStudentBalances(): StudentBalance[] {
     .prepare(
       `SELECT student_aad_id, student_name, SUM(total_cents) as total_due_cents, COUNT(*) as order_count
        FROM orders
-       WHERE payment_method = 'pay-at-collect'
+       WHERE payment_method IN ('pay-at-collect', 'cash-at-counter')
          AND status != 'cancelled'
        GROUP BY student_aad_id
        ORDER BY total_due_cents DESC`

@@ -3,6 +3,153 @@ import { DEFAULT_APP_SETTINGS } from "../config/app-settings";
 import { getBusinessDateForStoredTimestamp } from "../services/business-time-service";
 import { parseOrderSequenceForBusinessDate } from "../services/order-id-service";
 
+const ORDERS_PAYMENT_METHOD_CHECK =
+  "CHECK(payment_method IN ('student-card', 'pay-at-collect', 'cash-at-counter', 'wechat-pay'))";
+
+function createOrdersTableSql(tableName = "orders"): string {
+  return `
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      id                TEXT PRIMARY KEY,
+      student_aad_id    TEXT NOT NULL,
+      student_name      TEXT NOT NULL,
+      customer_type     TEXT NOT NULL DEFAULT 'student' CHECK(customer_type IN ('student','guest')),
+      guest_phone       TEXT,
+      pickup_window_id  TEXT NOT NULL REFERENCES pickup_windows(id),
+      payment_method    TEXT NOT NULL ${ORDERS_PAYMENT_METHOD_CHECK},
+      payment_status    TEXT NOT NULL DEFAULT 'unpaid' CHECK(payment_status IN ('paid','pending','unpaid','refunded')),
+      status            TEXT NOT NULL DEFAULT 'confirmed'
+                          CHECK(status IN ('confirmed','preparing','ready','collected','cancelled')),
+      pickup_code       TEXT,
+      grid_slot         TEXT,
+      total_cents       INTEGER NOT NULL,
+      payment_ref       TEXT,
+      payment_settled_at TEXT,
+      cancel_reason     TEXT,
+      cancel_note       TEXT,
+      business_date     TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      ready_at          TEXT,
+      collected_at      TEXT,
+      notes             TEXT
+    )`;
+}
+
+function getColumnNames(db: CompatDatabase, tableName: string): Set<string> {
+  const rows = db.prepare<{ name: string }>(`PRAGMA table_info(${tableName})`).all();
+  return new Set(rows.map((column) => column.name));
+}
+
+function selectColumnOrDefault(
+  columnNames: Set<string>,
+  columnName: string,
+  defaultExpr = "NULL"
+): string {
+  return columnNames.has(columnName) ? columnName : defaultExpr;
+}
+
+function ensureOrdersTableSupportsGuests(db: CompatDatabase): void {
+  const row = db
+    .prepare<{ sql: string | null }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
+    )
+    .get();
+  if (!row?.sql) {
+    return;
+  }
+
+  const orderColumnNames = getColumnNames(db, "orders");
+  const hasNewPaymentMethods = row.sql.includes("cash-at-counter") && row.sql.includes("wechat-pay");
+  const hasGuestColumns =
+    orderColumnNames.has("customer_type") &&
+    orderColumnNames.has("guest_phone") &&
+    orderColumnNames.has("payment_status");
+
+  if (hasNewPaymentMethods && hasGuestColumns) {
+    return;
+  }
+
+  const customerTypeExpr = orderColumnNames.has("customer_type")
+    ? "COALESCE(customer_type, 'student')"
+    : "'student'";
+  const guestPhoneExpr = selectColumnOrDefault(orderColumnNames, "guest_phone");
+  const paymentSettledAtColumn = selectColumnOrDefault(orderColumnNames, "payment_settled_at");
+  const paymentStatusDefaultExpr =
+    `CASE WHEN payment_method = 'student-card' AND ${paymentSettledAtColumn} IS NOT NULL THEN 'paid' ELSE 'unpaid' END`;
+  const paymentStatusExpr = orderColumnNames.has("payment_status")
+    ? `COALESCE(payment_status, ${paymentStatusDefaultExpr})`
+    : paymentStatusDefaultExpr;
+  const pickupCodeExpr = selectColumnOrDefault(orderColumnNames, "pickup_code");
+  const gridSlotExpr = selectColumnOrDefault(orderColumnNames, "grid_slot");
+  const paymentRefExpr = selectColumnOrDefault(orderColumnNames, "payment_ref");
+  const paymentSettledAtExpr = selectColumnOrDefault(orderColumnNames, "payment_settled_at");
+  const cancelReasonExpr = selectColumnOrDefault(orderColumnNames, "cancel_reason");
+  const cancelNoteExpr = selectColumnOrDefault(orderColumnNames, "cancel_note");
+  const businessDateExpr = selectColumnOrDefault(orderColumnNames, "business_date");
+  const readyAtExpr = selectColumnOrDefault(orderColumnNames, "ready_at");
+  const collectedAtExpr = selectColumnOrDefault(orderColumnNames, "collected_at");
+  const notesExpr = selectColumnOrDefault(orderColumnNames, "notes");
+
+  db.exec("PRAGMA foreign_keys=OFF");
+  db.transaction(() => {
+    db.exec("DROP TABLE IF EXISTS orders_new");
+    db.exec(createOrdersTableSql("orders_new"));
+    db.exec(`
+      INSERT INTO orders_new (
+        id,
+        student_aad_id,
+        student_name,
+        customer_type,
+        guest_phone,
+        pickup_window_id,
+        payment_method,
+        payment_status,
+        status,
+        pickup_code,
+        grid_slot,
+        total_cents,
+        payment_ref,
+        payment_settled_at,
+        cancel_reason,
+        cancel_note,
+        business_date,
+        created_at,
+        updated_at,
+        ready_at,
+        collected_at,
+        notes
+      )
+      SELECT
+        id,
+        student_aad_id,
+        student_name,
+        ${customerTypeExpr},
+        ${guestPhoneExpr},
+        pickup_window_id,
+        payment_method,
+        ${paymentStatusExpr},
+        status,
+        ${pickupCodeExpr},
+        ${gridSlotExpr},
+        total_cents,
+        ${paymentRefExpr},
+        ${paymentSettledAtExpr},
+        ${cancelReasonExpr},
+        ${cancelNoteExpr},
+        ${businessDateExpr},
+        created_at,
+        updated_at,
+        ${readyAtExpr},
+        ${collectedAtExpr},
+        ${notesExpr}
+      FROM orders
+    `);
+    db.exec("DROP TABLE orders");
+    db.exec("ALTER TABLE orders_new RENAME TO orders");
+  })();
+  db.exec("PRAGMA foreign_keys=ON");
+}
+
 function backfillOrderSequences(db: CompatDatabase): void {
   const orders = db
     .prepare<{ id: string; business_date: string | null }>(
@@ -79,28 +226,7 @@ export function migrateDatabase(db: CompatDatabase): void {
       sort_order    INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS orders (
-      id                TEXT PRIMARY KEY,
-      student_aad_id    TEXT NOT NULL,
-      student_name      TEXT NOT NULL,
-      pickup_window_id  TEXT NOT NULL REFERENCES pickup_windows(id),
-      payment_method    TEXT NOT NULL CHECK(payment_method IN ('student-card', 'pay-at-collect')),
-      status            TEXT NOT NULL DEFAULT 'confirmed'
-                          CHECK(status IN ('confirmed','preparing','ready','collected','cancelled')),
-      pickup_code       TEXT,
-      grid_slot         TEXT,
-      total_cents       INTEGER NOT NULL,
-      payment_ref       TEXT,
-      payment_settled_at TEXT,
-      cancel_reason     TEXT,
-      cancel_note       TEXT,
-      business_date     TEXT,
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      ready_at          TEXT,
-      collected_at      TEXT,
-      notes             TEXT
-    );
+    ${createOrdersTableSql()};
 
     CREATE TABLE IF NOT EXISTS order_items (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,6 +250,34 @@ export function migrateDatabase(db: CompatDatabase): void {
       aad_id        TEXT PRIMARY KEY,
       display_name  TEXT NOT NULL,
       role          TEXT NOT NULL DEFAULT 'staff' CHECK(role IN ('staff', 'admin'))
+    );
+
+    CREATE TABLE IF NOT EXISTS guest_users (
+      phone         TEXT PRIMARY KEY,
+      masked_phone  TEXT NOT NULL,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      verified_at   TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS guest_sms_challenges (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone        TEXT NOT NULL,
+      code_hash    TEXT NOT NULL,
+      code_salt    TEXT NOT NULL,
+      ip_address   TEXT,
+      attempts     INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at   TEXT NOT NULL,
+      consumed_at  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS guest_sessions (
+      token_hash  TEXT PRIMARY KEY,
+      phone       TEXT NOT NULL REFERENCES guest_users(phone),
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at  TEXT NOT NULL,
+      revoked_at  TEXT
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -153,12 +307,14 @@ export function migrateDatabase(db: CompatDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);
     CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(category_id);
+    CREATE INDEX IF NOT EXISTS idx_guest_sms_phone_created ON guest_sms_challenges(phone, created_at);
+    CREATE INDEX IF NOT EXISTS idx_guest_sms_ip_created ON guest_sms_challenges(ip_address, created_at);
+    CREATE INDEX IF NOT EXISTS idx_guest_sessions_phone ON guest_sessions(phone);
   `);
 
-  const orderColumns = db
-    .prepare<{ name: string }>("PRAGMA table_info(orders)")
-    .all();
-  const orderColumnNames = new Set(orderColumns.map((column) => column.name));
+  ensureOrdersTableSupportsGuests(db);
+
+  const orderColumnNames = getColumnNames(db, "orders");
   const menuItemColumns = db
     .prepare<{ name: string }>("PRAGMA table_info(menu_items)")
     .all();
@@ -176,6 +332,15 @@ export function migrateDatabase(db: CompatDatabase): void {
   if (!orderColumnNames.has("business_date")) {
     db.exec("ALTER TABLE orders ADD COLUMN business_date TEXT");
   }
+  if (!orderColumnNames.has("customer_type")) {
+    db.exec("ALTER TABLE orders ADD COLUMN customer_type TEXT NOT NULL DEFAULT 'student'");
+  }
+  if (!orderColumnNames.has("guest_phone")) {
+    db.exec("ALTER TABLE orders ADD COLUMN guest_phone TEXT");
+  }
+  if (!orderColumnNames.has("payment_status")) {
+    db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'unpaid'");
+  }
   if (!menuItemColumnNames.has("is_advertised")) {
     db.exec("ALTER TABLE menu_items ADD COLUMN is_advertised INTEGER NOT NULL DEFAULT 0");
   }
@@ -184,14 +349,16 @@ export function migrateDatabase(db: CompatDatabase): void {
 
   db.exec(`
     UPDATE orders
-    SET payment_settled_at = COALESCE(payment_settled_at, created_at)
+    SET payment_settled_at = COALESCE(payment_settled_at, created_at),
+        payment_status = 'paid'
     WHERE payment_method = 'student-card'
   `);
 
   db.exec(`
     UPDATE orders
-    SET payment_settled_at = NULL
-    WHERE payment_method = 'pay-at-collect'
+    SET payment_settled_at = NULL,
+        payment_status = CASE WHEN payment_method = 'wechat-pay' THEN payment_status ELSE 'unpaid' END
+    WHERE payment_method IN ('pay-at-collect', 'cash-at-counter', 'wechat-pay')
   `);
 
   const insertDefaultSetting = db.prepare(

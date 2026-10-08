@@ -1,0 +1,10 @@
+{
+  "miniprogramRoot": "dist",
+  "projectname": "coffee-shop-wechat",
+  "description": "Coffee Shop WeChat Mini Program portable client",
+  "appid": "touristappid",
+  "setting": {
+    "es6": true,
+    "minified": true
+  }
+}

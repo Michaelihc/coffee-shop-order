@@ -333,8 +333,17 @@ export function QueuePage() {
             showStudent
             actions={
               <div className={styles.actions}>
-                {order.paymentMethod === "pay-at-collect" && (
-                  <span className={styles.payAtCollect}>{t("order.payAtCounter")}</span>
+                {(order.paymentMethod === "pay-at-collect" ||
+                  order.paymentMethod === "cash-at-counter" ||
+                  (order.paymentMethod === "wechat-pay" &&
+                    order.paymentStatus === "pending")) && (
+                  <span className={styles.payAtCollect}>
+                    {order.paymentMethod === "wechat-pay"
+                      ? t("order.wechatPayPending")
+                      : order.paymentMethod === "cash-at-counter"
+                      ? t("order.cashAtCounter")
+                      : t("order.payAtCounter")}
+                  </span>
                 )}
                 {order.status === "confirmed" && (
                   <DelayedActionButton

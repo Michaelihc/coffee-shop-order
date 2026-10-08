@@ -38,6 +38,71 @@ export interface CreateOrderResponse {
   order: Order;
 }
 
+export type WechatPayPresentation = "auto" | "qr" | "direct";
+
+export interface GuestDetails {
+  name?: string;
+  phone: string;
+}
+
+export interface CreateGuestOrderRequest extends CreateOrderRequest {
+  guest: GuestDetails;
+  wechatPayPresentation?: WechatPayPresentation;
+}
+
+export type WechatPaymentInstructions =
+  | { kind: "qr"; codeUrl: string }
+  | { kind: "h5"; h5Url: string }
+  | {
+      kind: "jsapi";
+      timeStamp: string;
+      nonceStr: string;
+      package: string;
+      signType: "RSA";
+      paySign: string;
+    };
+
+export interface CreateGuestOrderResponse {
+  order: Order;
+  payment?: WechatPaymentInstructions;
+}
+
+export interface OrderPaymentStatusResponse {
+  orderId: string;
+  paymentStatus: Order["paymentStatus"];
+  status: Order["status"];
+}
+
+export interface GuestAuthConfigResponse {
+  turnstileSiteKey: string | null;
+}
+
+export interface GuestAuthMeResponse {
+  authenticated: boolean;
+  phone?: string;
+  maskedPhone?: string;
+}
+
+export interface SendGuestCodeRequest {
+  phone: string;
+  turnstileToken: string;
+}
+
+export interface SendGuestCodeResponse {
+  maskedPhone: string;
+}
+
+export interface VerifyGuestCodeRequest {
+  phone: string;
+  code: string;
+}
+
+export interface VerifyGuestCodeResponse {
+  token: string;
+  maskedPhone: string;
+  expiresAt: string;
+}
+
 // GET /api/orders/mine
 export interface MyOrdersResponse {
   orders: Order[];

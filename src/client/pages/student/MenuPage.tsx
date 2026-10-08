@@ -65,6 +65,15 @@ export function MenuPage() {
   const allItems = categories.flatMap((c) => c.items);
   const currentCat = categories.find((c) => c.id === selectedCat);
 
+  function addMenuItemToCart(item: MenuItem) {
+    addItem({
+      menuItemId: item.id,
+      name: getLocalizedMenuItemName(t, item),
+      priceCents: item.priceCents,
+      itemClass: item.itemClass,
+    });
+  }
+
   useEffect(() => {
     if (!scrollTarget) {
       return;
@@ -85,6 +94,7 @@ export function MenuPage() {
       <AdBanner
         items={allItems}
         onItemClick={(item) => {
+          addMenuItemToCart(item);
           setSelectedCat(item.categoryId);
           setScrollTarget({
             itemId: item.id,
@@ -119,14 +129,7 @@ export function MenuPage() {
                 <MenuItemCard
                   item={item}
                   quantity={cartItem?.quantity ?? 0}
-                  onAdd={(i) =>
-                    addItem({
-                      menuItemId: i.id,
-                      name: getLocalizedMenuItemName(t, i),
-                      priceCents: i.priceCents,
-                      itemClass: i.itemClass,
-                    })
-                  }
+                  onAdd={addMenuItemToCart}
                   onUpdateQuantity={updateQuantity}
                 />
               </div>

@@ -14,7 +14,7 @@ interface TeamsContextValue {
 
 const TeamsContext = createContext<TeamsContextValue>({
   context: null,
-  user: { userId: "dev-user", userName: "Dev Student" },
+  user: { userId: "", userName: "Guest" },
   isInTeams: false,
 });
 
@@ -33,7 +33,7 @@ export function TeamsContextProvider({
           context.user.userPrincipalName ||
           "Unknown",
       }
-    : { userId: "dev-user", userName: "Dev Student" };
+    : { userId: "", userName: "Guest" };
 
   return (
     <TeamsContext.Provider value={{ context, user, isInTeams: !!context }}>

@@ -11,18 +11,32 @@ export function useRole() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadRole = () => {
     api
       .get<MeResponse>("/api/me")
       .then((data) => {
+        if (cancelled) return;
         setRole(data.role);
         setDisplayName(data.displayName);
         setUserId(data.userId);
       })
       .catch(() => {
+        if (cancelled) return;
         setRole("student");
         setDisplayName("Guest");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    };
+
+    loadRole();
+    window.addEventListener("coffee-shop-guest-auth-changed", loadRole);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("coffee-shop-guest-auth-changed", loadRole);
+    };
   }, []);
 
   return { role, displayName, userId, loading };
